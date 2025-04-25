@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, request
+from flask_cors import CORS  # Added CORS import
 from utils.wikipedia_api import (
     get_article_summary,
     get_article_metadata,
@@ -9,8 +10,10 @@ from utils.wikipedia_api import (
 )
 import requests
 from collections import defaultdict
+import os
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "WikiDash/1.0 (rahul@example.com)"}
@@ -147,9 +150,51 @@ def get_top_reverters():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-if __name__ == '__main__':
-    import os
+# Add an endpoint to handle co-editors requests
+@app.route('/api/co-editors', methods=['GET'])
+def get_co_editors():
+    title = request.args.get("title")
+    if not title:
+        return jsonify({"error": "Missing title parameter"}), 400
 
+    # Get editors who edited the article
+    editors_data = get_top_editors(title)
+    
+    # This is a simplified implementation
+    # In a real app, you would analyze actual edit patterns
+    # to determine true collaboration
+    result = []
+    
+    # Create mock co-editing relationships for visualization
+    if len(editors_data) > 1:
+        for i in range(len(editors_data) - 1):
+            result.append({
+                "editor1": editors_data[i]["user"],
+                "editor2": editors_data[i+1]["user"],
+                "strength": 0.5  # Placeholder value
+            })
+    
+    return jsonify(result)
+
+# Add a root route for API health check
+@app.route('/', methods=['GET'])
+def root():
+    return jsonify({
+        "status": "online",
+        "message": "WikiDash API is running!",
+        "endpoints": [
+            "/api/article",
+            "/api/edits",
+            "/api/editors",
+            "/api/citations",
+            "/api/edit-timeline",
+            "/api/reverts",
+            "/api/reverters",
+            "/api/co-editors"
+        ]
+    })
+
+if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))  # required by Render
     print(f"Starting Flask on 0.0.0.0:{port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False)  # ✅ PRODUCTION-READY
