@@ -32,9 +32,14 @@ It exposes APIs to retrieve:
 For Local Setup
 
 
-```git clone https://github.com/KanishkKaran/wikidash-backend.git```
-```cd wikidash-backend```
-```python3 -m venv venv```
-```source venv/bin/activate```
-```pip install -r requirements.txt```
-```python app.py```
+1. ```git clone https://github.com/KanishkKaran/wikidash-backend.git```
+
+2. ```cd wikidash-backend```
+
+3. ```python3 -m venv venv```
+
+4. ```source venv/bin/activate```
+
+5. ```pip install -r requirements.txt```
+
+6. ```python app.py```
