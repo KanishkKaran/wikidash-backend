@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, request
+from flask_cors import CORS  # Import Flask-CORS
 from utils.wikipedia_api import (
     get_article_summary,
     get_article_metadata,
@@ -12,6 +13,8 @@ from collections import defaultdict
 import os
 
 app = Flask(__name__)
+# Enable CORS for all routes
+CORS(app, resources={r"/api/*": {"origins": ["https://wiki-dash.com", "http://localhost:3000"]}})
 
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "WikiDash/1.0 (rahul@example.com)"}
