@@ -1,5 +1,4 @@
 from flask import Flask, jsonify, request
-from flask_cors import CORS  # Added CORS import
 from utils.wikipedia_api import (
     get_article_summary,
     get_article_metadata,
@@ -13,7 +12,6 @@ from collections import defaultdict
 import os
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
 
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "WikiDash/1.0 (rahul@example.com)"}
@@ -24,32 +22,54 @@ def get_article_data():
     if not title:
         return jsonify({"error": "Missing title parameter"}), 400
 
-    return jsonify({
-        "summary": get_article_summary(title),
-        "metadata": get_article_metadata(title),
-        "pageviews": get_pageviews(title)
-    })
+    try:
+        summary = get_article_summary(title)
+        metadata = get_article_metadata(title)
+        pageviews = get_pageviews(title)
+        
+        return jsonify({
+            "summary": summary,
+            "metadata": metadata,
+            "pageviews": pageviews
+        })
+    except Exception as e:
+        return jsonify({"error": f"Error processing request: {str(e)}"}), 500
 
 @app.route('/api/edits', methods=['GET'])
 def get_edits():
     title = request.args.get("title")
     if not title:
         return jsonify({"error": "Missing title parameter"}), 400
-    return jsonify(get_edit_count(title))
+    
+    try:
+        edit_data = get_edit_count(title)
+        return jsonify(edit_data)
+    except Exception as e:
+        return jsonify({"error": f"Error processing request: {str(e)}"}), 500
 
 @app.route('/api/editors', methods=['GET'])
 def get_editors():
     title = request.args.get("title")
     if not title:
         return jsonify({"error": "Missing title parameter"}), 400
-    return jsonify(get_top_editors(title))
+    
+    try:
+        editors_data = get_top_editors(title)
+        return jsonify(editors_data)
+    except Exception as e:
+        return jsonify({"error": f"Error processing request: {str(e)}"}), 500
 
 @app.route('/api/citations', methods=['GET'])
 def get_citations():
     title = request.args.get("title")
     if not title:
         return jsonify({"error": "Missing title parameter"}), 400
-    return jsonify(get_citation_stats(title))
+    
+    try:
+        citation_data = get_citation_stats(title)
+        return jsonify(citation_data)
+    except Exception as e:
+        return jsonify({"error": f"Error processing request: {str(e)}"}), 500
 
 @app.route('/api/edit-timeline', methods=['GET'])
 def get_edit_timeline():
@@ -68,8 +88,15 @@ def get_edit_timeline():
     }
 
     try:
-        response = requests.get(WIKI_API, params=params, headers=HEADERS).json()
-        pages = response.get("query", {}).get("pages", {})
+        response = requests.get(WIKI_API, params=params, headers=HEADERS)
+        if response.status_code != 200:
+            return jsonify({"error": f"API request failed with status code {response.status_code}"}), 500
+            
+        response_data = response.json()
+        pages = response_data.get("query", {}).get("pages", {})
+        if not pages:
+            return jsonify({"error": "No pages found in response"}), 404
+            
         page = next(iter(pages.values()))
         revisions = page.get("revisions", [])
 
@@ -79,8 +106,12 @@ def get_edit_timeline():
             timeline[date] += 1
 
         return jsonify(dict(timeline))
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Request error: {str(e)}"}), 500
+    except ValueError as e:  # JSON decode error
+        return jsonify({"error": f"JSON decode error: {str(e)}"}), 500
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 @app.route('/api/reverts', methods=['GET'])
 def get_revert_activity():
@@ -99,8 +130,15 @@ def get_revert_activity():
     }
 
     try:
-        response = requests.get(WIKI_API, params=params, headers=HEADERS).json()
-        pages = response.get("query", {}).get("pages", {})
+        response = requests.get(WIKI_API, params=params, headers=HEADERS)
+        if response.status_code != 200:
+            return jsonify({"error": f"API request failed with status code {response.status_code}"}), 500
+            
+        response_data = response.json()
+        pages = response_data.get("query", {}).get("pages", {})
+        if not pages:
+            return jsonify({"error": "No pages found in response"}), 404
+            
         page = next(iter(pages.values()))
         revisions = page.get("revisions", [])
 
@@ -112,8 +150,12 @@ def get_revert_activity():
                 reverts[date] += 1
 
         return jsonify(dict(reverts))
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Request error: {str(e)}"}), 500
+    except ValueError as e:  # JSON decode error
+        return jsonify({"error": f"JSON decode error: {str(e)}"}), 500
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 @app.route('/api/reverters', methods=['GET'])
 def get_top_reverters():
@@ -132,8 +174,15 @@ def get_top_reverters():
     }
 
     try:
-        response = requests.get(WIKI_API, params=params, headers=HEADERS).json()
-        pages = response.get("query", {}).get("pages", {})
+        response = requests.get(WIKI_API, params=params, headers=HEADERS)
+        if response.status_code != 200:
+            return jsonify({"error": f"API request failed with status code {response.status_code}"}), 500
+            
+        response_data = response.json()
+        pages = response_data.get("query", {}).get("pages", {})
+        if not pages:
+            return jsonify({"error": "No pages found in response"}), 404
+            
         page = next(iter(pages.values()))
         revisions = page.get("revisions", [])
 
@@ -146,9 +195,12 @@ def get_top_reverters():
 
         sorted_reverters = sorted(reverter_counts.items(), key=lambda x: x[1], reverse=True)
         return jsonify([{"user": user, "reverts": count} for user, count in sorted_reverters])
-
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Request error: {str(e)}"}), 500
+    except ValueError as e:  # JSON decode error
+        return jsonify({"error": f"JSON decode error: {str(e)}"}), 500
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 # Add an endpoint to handle co-editors requests
 @app.route('/api/co-editors', methods=['GET'])
@@ -157,44 +209,31 @@ def get_co_editors():
     if not title:
         return jsonify({"error": "Missing title parameter"}), 400
 
-    # Get editors who edited the article
-    editors_data = get_top_editors(title)
-    
-    # This is a simplified implementation
-    # In a real app, you would analyze actual edit patterns
-    # to determine true collaboration
-    result = []
-    
-    # Create mock co-editing relationships for visualization
-    if len(editors_data) > 1:
-        for i in range(len(editors_data) - 1):
-            result.append({
-                "editor1": editors_data[i]["user"],
-                "editor2": editors_data[i+1]["user"],
-                "strength": 0.5  # Placeholder value
-            })
-    
-    return jsonify(result)
-
-# Add a root route for API health check
-@app.route('/', methods=['GET'])
-def root():
-    return jsonify({
-        "status": "online",
-        "message": "WikiDash API is running!",
-        "endpoints": [
-            "/api/article",
-            "/api/edits",
-            "/api/editors",
-            "/api/citations",
-            "/api/edit-timeline",
-            "/api/reverts",
-            "/api/reverters",
-            "/api/co-editors"
-        ]
-    })
+    try:
+        # Get editors who edited the article
+        editors_data = get_top_editors(title)
+        
+        # This is a simplified implementation
+        # In a real app, you would analyze actual edit patterns
+        # to determine true collaboration
+        result = []
+        
+        # Create mock co-editing relationships for visualization
+        if len(editors_data) > 1:
+            for i in range(len(editors_data) - 1):
+                result.append({
+                    "editor1": editors_data[i]["user"],
+                    "editor2": editors_data[i+1]["user"],
+                    "strength": 0.5  # Placeholder value
+                })
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": f"Error processing request: {str(e)}"}), 500
 
 if __name__ == '__main__':
+    import os
+
     port = int(os.environ.get('PORT', 10000))  # required by Render
     print(f"Starting Flask on 0.0.0.0:{port}")
     app.run(host='0.0.0.0', port=port, debug=False)  # ✅ PRODUCTION-READY
