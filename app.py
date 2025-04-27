@@ -1,5 +1,5 @@
-from flask import Flask, jsonify, request
-from flask_cors import CORS  # Import Flask-CORS
+from flask import Flask, jsonify, request, make_response
+from flask_cors import CORS
 from utils.wikipedia_api import (
     get_article_summary,
     get_article_metadata,
@@ -13,8 +13,26 @@ from collections import defaultdict
 import os
 
 app = Flask(__name__)
-# Enable CORS for all routes
-CORS(app, resources={r"/api/*": {"origins": ["https://wiki-dash.com", "http://localhost:3000"]}})
+
+# Enable CORS for all origins and all routes - most permissive approach for debugging
+CORS(app, supports_credentials=True)
+
+# Add CORS headers to all responses manually as a backup
+@app.after_request
+def add_cors_headers(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
+# Handle preflight requests explicitly
+@app.route('/api/<path:path>', methods=['OPTIONS'])
+def handle_options(path):
+    response = make_response()
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "WikiDash/1.0 (rahul@example.com)"}
@@ -233,6 +251,11 @@ def get_co_editors():
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": f"Error processing request: {str(e)}"}), 500
+
+# Basic health check endpoint
+@app.route('/', methods=['GET'])
+def health_check():
+    return jsonify({"status": "OK", "message": "WikiDash API is running"})
 
 if __name__ == '__main__':
     import os
