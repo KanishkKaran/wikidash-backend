@@ -48,23 +48,11 @@ def get_article_summary(title):
             return {"title": title, "summary": "", "url": "", "error": "No pages found in response"}
             
         page = next(iter(pages.values()))
-        summary_data = {
+        # Format data in a way that matches what the frontend expects
+        return {
             "title": page.get("title", ""),
             "summary": page.get("extract", ""),
             "url": page.get("fullurl", "")
-        }
-        
-        # Get pageviews data
-        pageviews = get_pageviews(title)
-        
-        # Get metadata
-        metadata = get_article_metadata(title)
-        
-        # Return combined data
-        return {
-            "summary": summary_data,
-            "pageviews": pageviews,
-            "metadata": metadata
         }
     except requests.exceptions.RequestException as e:
         return {"title": title, "summary": "", "url": "", "error": f"Request error: {str(e)}"}
