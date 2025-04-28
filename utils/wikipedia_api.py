@@ -1,5 +1,5 @@
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import quote, urlparse
 import re
 
@@ -48,10 +48,23 @@ def get_article_summary(title):
             return {"title": title, "summary": "", "url": "", "error": "No pages found in response"}
             
         page = next(iter(pages.values()))
-        return {
+        summary_data = {
             "title": page.get("title", ""),
             "summary": page.get("extract", ""),
             "url": page.get("fullurl", "")
+        }
+        
+        # Get pageviews data
+        pageviews = get_pageviews(title)
+        
+        # Get metadata
+        metadata = get_article_metadata(title)
+        
+        # Return combined data
+        return {
+            "summary": summary_data,
+            "pageviews": pageviews,
+            "metadata": metadata
         }
     except requests.exceptions.RequestException as e:
         return {"title": title, "summary": "", "url": "", "error": f"Request error: {str(e)}"}
@@ -94,10 +107,17 @@ def get_article_metadata(title):
 def get_pageviews(title, days=60):
     try:
         title = get_canonical_title(title)
-        start_date = "20240201"
-        end_date = "20240401"
+        
+        # Calculate date range for the last 60 days
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+        
+        # Format dates as required by the API (YYYYMMDD)
+        start_date_str = start_date.strftime("%Y%m%d")
+        end_date_str = end_date.strftime("%Y%m%d")
+        
         encoded_title = quote(title.replace(" ", "_"))
-        url = f"{PAGEVIEWS_API}/en.wikipedia.org/all-access/all-agents/{encoded_title}/daily/{start_date}/{end_date}"
+        url = f"{PAGEVIEWS_API}/en.wikipedia.org/all-access/all-agents/{encoded_title}/daily/{start_date_str}/{end_date_str}"
         
         response = requests.get(url, headers=HEADERS)
         if response.status_code != 200:
@@ -108,7 +128,8 @@ def get_pageviews(title, days=60):
             "date": f"{item['timestamp'][:4]}-{item['timestamp'][4:6]}-{item['timestamp'][6:8]}",
             "views": item["views"]
         } for item in data.get("items", [])]
-    except Exception:
+    except Exception as e:
+        print(f"Error fetching pageviews: {str(e)}")
         return []
 
 def get_edit_count(title):
@@ -201,7 +222,8 @@ def get_top_editors(title, limit=10):
         
         sorted_editors = sorted(editors.items(), key=lambda x: x[1], reverse=True)
         return [{"user": k, "edits": v} for k, v in sorted_editors[:limit]]
-    except Exception:
+    except Exception as e:
+        print(f"Error in get_top_editors: {str(e)}")
         return []
 
 def get_revert_activities(title, limit=10):
