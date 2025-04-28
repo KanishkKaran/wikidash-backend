@@ -43,25 +43,38 @@ def get_article_data():
     if not title:
         return jsonify({
             "error": "Missing title parameter",
-            "summary": {"title": "", "summary": "", "url": ""},
+            "title": "",
+            "summary": "",
+            "url": "",
             "metadata": {"created_at": None},
             "pageviews": []
         }), 200  # Return 200 with empty data
 
     try:
-        summary = get_article_summary(title)
+        # Get article summary data
+        summary_data = get_article_summary(title)
+        
+        # Get metadata separately
         metadata = get_article_metadata(title)
+        
+        # Get pageviews separately
         pageviews = get_pageviews(title)
         
+        # Return flat structure with all string properties
         return jsonify({
-            "summary": summary,
+            "title": summary_data.get("title", ""),
+            "summary": summary_data.get("summary", ""),
+            "url": summary_data.get("url", ""),
             "metadata": metadata,
             "pageviews": pageviews
         })
     except Exception as e:
+        print(f"ERROR in get_article_data: {str(e)}")
         return jsonify({
             "error": f"Error processing request: {str(e)}",
-            "summary": {"title": title, "summary": "", "url": ""},
+            "title": title,
+            "summary": "",
+            "url": "",
             "metadata": {"created_at": None},
             "pageviews": []
         }), 200  # Return 200 with empty data and error message
