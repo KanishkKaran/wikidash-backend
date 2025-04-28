@@ -116,31 +116,45 @@ def get_edit_count(title):
         params = {
             "action": "query",
             "format": "json",
+            "titles": title,
             "prop": "revisions",
-            "rvprop": "ids",
-            "rvlimit": "1",
-            "titles": title
+            "rvprop": "ids|timestamp|user|comment",
+            "rvlimit": "500"
         }
+        
         response = requests.get(WIKI_API, params=params, headers=HEADERS)
         if response.status_code != 200:
-            return {"edit_count": 0, "error": f"API request failed with status code {response.status_code}"}
+            return {"edit_count": 0, "revisions": [], "error": f"API request failed with status code {response.status_code}"}
         
         data = response.json()
         pages = data.get('query', {}).get('pages', {})
         if not pages:
-            return {"edit_count": 0, "error": "No pages found in response"}
+            return {"edit_count": 0, "revisions": [], "error": "No pages found in response"}
             
         page_id = next(iter(pages))
         page = pages[page_id]
+        revisions = page.get("revisions", [])
+        
+        # Get last 100 edits for timeline data
+        timeline_data = []
+        for rev in revisions[:100]:  # Limit to 100 most recent edits for timeline
+            timeline_data.append({
+                "id": rev.get("revid", 0),
+                "timestamp": rev.get("timestamp", ""),
+                "user": rev.get("user", "Unknown"),
+                "comment": rev.get("comment", "")
+            })
+            
         return {
-            "edit_count": page.get("length", 0)
+            "edit_count": len(revisions),
+            "revisions": timeline_data
         }
     except requests.exceptions.RequestException as e:
-        return {"edit_count": 0, "error": f"Request error: {str(e)}"}
+        return {"edit_count": 0, "revisions": [], "error": f"Request error: {str(e)}"}
     except ValueError as e:  # JSON decode error
-        return {"edit_count": 0, "error": f"JSON decode error: {str(e)}"}
+        return {"edit_count": 0, "revisions": [], "error": f"JSON decode error: {str(e)}"}
     except Exception as e:
-        return {"edit_count": 0, "error": f"Unexpected error: {str(e)}"}
+        return {"edit_count": 0, "revisions": [], "error": f"Unexpected error: {str(e)}"}
 
 def get_top_editors(title, limit=10):
     try:
@@ -188,6 +202,56 @@ def get_top_editors(title, limit=10):
         sorted_editors = sorted(editors.items(), key=lambda x: x[1], reverse=True)
         return [{"user": k, "edits": v} for k, v in sorted_editors[:limit]]
     except Exception:
+        return []
+
+def get_revert_activities(title, limit=10):
+    """
+    Analyzes edits to find reverts and identifies users who make/receive the most reverts
+    """
+    try:
+        params = {
+            "action": "query",
+            "format": "json",
+            "prop": "revisions",
+            "titles": title,
+            "rvlimit": "500",
+            "rvprop": "user|comment",
+        }
+        
+        response = requests.get(WIKI_API, params=params, headers=HEADERS)
+        if response.status_code != 200:
+            return []
+        
+        data = response.json()
+        pages = data.get('query', {}).get('pages', {})
+        if not pages:
+            return []
+            
+        page = next(iter(pages.values()))
+        reverters = {}
+        
+        # Common revert patterns in edit summaries
+        revert_patterns = [
+            r"revert",
+            r"rv ",
+            r"rvv",
+            r"undid",
+            r"rollback"
+        ]
+        
+        for rev in page.get("revisions", []):
+            comment = rev.get("comment", "").lower()
+            user = rev.get("user", "Unknown")
+            
+            for pattern in revert_patterns:
+                if re.search(pattern, comment):
+                    reverters[user] = reverters.get(user, 0) + 1
+                    break
+        
+        sorted_reverters = sorted(reverters.items(), key=lambda x: x[1], reverse=True)
+        return [{"user": k, "reverts": v} for k, v in sorted_reverters[:limit]]
+    except Exception as e:
+        print(f"Error in get_revert_activities: {str(e)}")
         return []
 
 def get_citation_stats(title):
