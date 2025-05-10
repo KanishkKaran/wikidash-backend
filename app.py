@@ -14,22 +14,14 @@ import os
 
 app = Flask(__name__)
 
-# Enable CORS for all origins and all routes - most permissive approach
-CORS(app, supports_credentials=True)
+# Updated CORS configuration - using only one method to avoid duplicate headers
+CORS(app, resources={r"/*": {"origins": ["https://wiki-dash.com", "http://localhost:3000"]}})
 
-# Add CORS headers to all responses manually as a backup
-@app.after_request
-def add_cors_headers(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    return response
-
-# Handle preflight requests explicitly
+# OPTIONS request handler with matching configuration
 @app.route('/api/<path:path>', methods=['OPTIONS'])
 def handle_options(path):
     response = make_response()
-    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Origin', 'https://wiki-dash.com')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     return response
@@ -301,6 +293,58 @@ def get_co_editors():
     except Exception as e:
         return jsonify({"error": f"Error processing request: {str(e)}", "connections": []}), 200
 
+# NEW ENDPOINT: Get user's contribution history
+@app.route('/api/user/<username>/contributions', methods=['GET'])
+def get_user_contributions(username):
+    if not username:
+        return jsonify({"error": "Missing username parameter", "contributions": []}), 200
+    
+    try:
+        # Fetch the list of user contributions from the Wikipedia API
+        params = {
+            "action": "query",
+            "format": "json",
+            "list": "usercontribs",
+            "ucuser": username,
+            "uclimit": "500",  # Maximum allowed by the API
+            "ucprop": "title|sizediff",
+        }
+        
+        response = requests.get(WIKI_API, params=params, headers=HEADERS)
+        if response.status_code != 200:
+            return jsonify({
+                "error": f"Wikipedia API request failed with status code {response.status_code}",
+                "contributions": []
+            }), 200
+            
+        response_data = response.json()
+        contribs = response_data.get("query", {}).get("usercontribs", [])
+        
+        # Create a dictionary to count edits per article
+        article_edits = {}
+        for contrib in contribs:
+            title = contrib.get("title", "Unknown")
+            article_edits[title] = article_edits.get(title, 0) + 1
+        
+        # Convert to list of objects and sort by edit count
+        contributions = [
+            {"title": title, "edits": count} 
+            for title, count in article_edits.items()
+        ]
+        
+        contributions.sort(key=lambda x: x["edits"], reverse=True)
+        
+        return jsonify({
+            "contributions": contributions
+        })
+        
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Request error: {str(e)}", "contributions": []}), 200
+    except ValueError as e:  # JSON decode error
+        return jsonify({"error": f"JSON decode error: {str(e)}", "contributions": []}), 200
+    except Exception as e:
+        return jsonify({"error": f"Unexpected error: {str(e)}", "contributions": []}), 200
+
 # Basic health check endpoint
 @app.route('/', methods=['GET'])
 def health_check():
@@ -311,4 +355,4 @@ if __name__ == '__main__':
 
     port = int(os.environ.get('PORT', 10000))  # required by Render
     print(f"Starting Flask on 0.0.0.0:{port}")
-    app.run(host='0.0.0.0', port=port, debug=False)  # ✅ PRODUCTION-READY
+    app.run(host='0.0.0.0', port=port, debug=False)  
