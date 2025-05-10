@@ -14,7 +14,7 @@ import os
 
 app = Flask(__name__)
 
-# Updated CORS configuration - using only one method to avoid duplicate headers
+# Enable CORS for all origins and all routes
 CORS(app, resources={r"/*": {"origins": ["https://wiki-dash.com", "http://localhost:3000"]}})
 
 # OPTIONS request handler with matching configuration
@@ -293,15 +293,40 @@ def get_co_editors():
     except Exception as e:
         return jsonify({"error": f"Error processing request: {str(e)}", "connections": []}), 200
 
-# NEW ENDPOINT: Get user's contribution history
+# NEW ENDPOINT: Get user's contribution history with accurate total edit count
 @app.route('/api/user/<username>/contributions', methods=['GET'])
 def get_user_contributions(username):
     if not username:
         return jsonify({"error": "Missing username parameter", "contributions": []}), 200
     
     try:
-        # Fetch the list of user contributions from the Wikipedia API
-        params = {
+        # First, get the user's TOTAL edit count from the Wikipedia API
+        user_info_params = {
+            "action": "query",
+            "format": "json",
+            "list": "users",
+            "ususers": username,
+            "usprop": "editcount"  # This gets the total edit count directly
+        }
+        
+        user_info_response = requests.get(WIKI_API, params=user_info_params, headers=HEADERS)
+        if user_info_response.status_code != 200:
+            return jsonify({
+                "error": f"Wikipedia API request failed with status code {user_info_response.status_code}",
+                "contributions": []
+            }), 200
+            
+        user_info_data = user_info_response.json()
+        total_user_edits = 0
+        
+        # Extract the total edit count from the response
+        if user_info_data.get("query", {}).get("users"):
+            users = user_info_data["query"]["users"]
+            if users and not users[0].get("missing"):
+                total_user_edits = users[0].get("editcount", 0)
+        
+        # Now fetch the list of user contributions to analyze distribution
+        contrib_params = {
             "action": "query",
             "format": "json",
             "list": "usercontribs",
@@ -310,11 +335,12 @@ def get_user_contributions(username):
             "ucprop": "title|sizediff",
         }
         
-        response = requests.get(WIKI_API, params=params, headers=HEADERS)
+        response = requests.get(WIKI_API, params=contrib_params, headers=HEADERS)
         if response.status_code != 200:
             return jsonify({
                 "error": f"Wikipedia API request failed with status code {response.status_code}",
-                "contributions": []
+                "contributions": [],
+                "total_edits": total_user_edits  # Still return the total from first API call
             }), 200
             
         response_data = response.json()
@@ -335,7 +361,8 @@ def get_user_contributions(username):
         contributions.sort(key=lambda x: x["edits"], reverse=True)
         
         return jsonify({
-            "contributions": contributions
+            "contributions": contributions,
+            "total_edits": total_user_edits  # Return the accurate total edit count
         })
         
     except requests.exceptions.RequestException as e:
@@ -344,6 +371,107 @@ def get_user_contributions(username):
         return jsonify({"error": f"JSON decode error: {str(e)}", "contributions": []}), 200
     except Exception as e:
         return jsonify({"error": f"Unexpected error: {str(e)}", "contributions": []}), 200
+
+# NEW ENDPOINT: Get accurate revision intensity data from actual edits and reverts
+@app.route('/api/revision-intensity', methods=['GET'])
+def get_revision_intensity():
+    title = request.args.get("title")
+    if not title:
+        return jsonify({"error": "Missing title parameter", "intensity_data": {}}), 200
+    
+    try:
+        # Get both edit timeline and revert timeline to calculate intensity
+        params_edits = {
+            "action": "query",
+            "format": "json",
+            "prop": "revisions",
+            "titles": title,
+            "rvlimit": "500",
+            "rvprop": "timestamp|user|comment",
+            "rvdir": "newer"
+        }
+        
+        # Get edit data
+        edit_response = requests.get(WIKI_API, params=params_edits, headers=HEADERS)
+        if edit_response.status_code != 200:
+            return jsonify({
+                "error": f"Wikipedia API request failed with status code {edit_response.status_code}",
+                "intensity_data": {}
+            }), 200
+        
+        edit_data = edit_response.json()
+        pages = edit_data.get("query", {}).get("pages", {})
+        if not pages:
+            return jsonify({"error": "No pages found in response", "intensity_data": {}}), 200
+            
+        page = next(iter(pages.values()))
+        revisions = page.get("revisions", [])
+        
+        # Process the revisions to get both edit counts and revert counts by date
+        edit_counts = defaultdict(int)
+        revert_counts = defaultdict(int)
+        editor_counts = defaultdict(set)  # Track unique editors per day
+        
+        for rev in revisions:
+            if "timestamp" not in rev:
+                continue
+                
+            date = rev["timestamp"][:10]
+            edit_counts[date] += 1
+            
+            if "user" in rev:
+                editor_counts[date].add(rev["user"])
+            
+            # Check if this is a revert
+            comment = rev.get("comment", "").lower()
+            if any(phrase in comment for phrase in ["reverted", "undo", "rv", "revert"]):
+                revert_counts[date] += 1
+        
+        # Calculate intensity based on edits, reverts, and unique editors
+        intensity_data = {}
+        all_dates = set(edit_counts.keys())
+        
+        for date in all_dates:
+            edits = edit_counts[date]
+            reverts = revert_counts[date]
+            editors = len(editor_counts[date])
+            
+            # Calculate intensity score based on real metrics:
+            # 1. Ratio of reverts to edits (conflict intensity)
+            # 2. Number of edits (activity intensity)
+            # 3. Number of editors (collaboration intensity)
+            
+            conflict_score = 0
+            if edits > 0:
+                conflict_score = (reverts / edits) * 100
+            
+            # Scale activity score logarithmically - more edits = higher intensity but with diminishing returns
+            activity_score = min(100, 20 * (1 + (edits / 10)))
+            
+            # More editors = higher intensity
+            collab_score = min(100, editors * 15)
+            
+            # Combined score (weighted average)
+            intensity = (conflict_score * 0.4) + (activity_score * 0.4) + (collab_score * 0.2)
+            
+            # Cap at 100 for visualization
+            intensity = min(100, intensity)
+            
+            intensity_data[date] = intensity
+        
+        return jsonify({
+            "intensity_data": intensity_data,
+            "hot_spots": len([score for score in intensity_data.values() if score > 50]),
+            "max_intensity": max(intensity_data.values()) if intensity_data else 0,
+            "max_date": max(intensity_data.items(), key=lambda x: x[1])[0] if intensity_data else None
+        })
+        
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Request error: {str(e)}", "intensity_data": {}}), 200
+    except ValueError as e:  # JSON decode error
+        return jsonify({"error": f"JSON decode error: {str(e)}", "intensity_data": {}}), 200
+    except Exception as e:
+        return jsonify({"error": f"Unexpected error: {str(e)}", "intensity_data": {}}), 200
 
 # Basic health check endpoint
 @app.route('/', methods=['GET'])
