@@ -473,17 +473,30 @@ def get_revision_intensity():
     except Exception as e:
         return jsonify({"error": f"Unexpected error: {str(e)}", "intensity_data": {}}), 200
 
-# Static HTML page routes
-@app.route('/about')
+# Static HTML page routes - updated to use direct file URLs
+@app.route('/static/about.html')
 def about_page():
     return app.send_static_file('about.html')
 
-@app.route('/privacy')
+@app.route('/static/privacy.html')
 def privacy_page():
     return app.send_static_file('privacy.html')
 
-@app.route('/how-to-use')
+@app.route('/static/how-to-use.html')
 def how_to_use_page():
+    return app.send_static_file('how-to-use.html')
+
+# Keep the original routes for compatibility
+@app.route('/about')
+def about_redirect():
+    return app.send_static_file('about.html')
+
+@app.route('/privacy')
+def privacy_redirect():
+    return app.send_static_file('privacy.html')
+
+@app.route('/how-to-use')
+def how_to_use_redirect():
     return app.send_static_file('how-to-use.html')
 
 # Basic health check endpoint
