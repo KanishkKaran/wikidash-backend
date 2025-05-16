@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>How to Use - WikiDash</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+  </head>
+  <body class="bg-slate-50 text-slate-800">
+    <header class="bg-slate-900 py-4 shadow-md">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center">
+            <svg 
+              xmlns="http://www.w3.org/2000/svg" 
+              width="28" 
+              height="28" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="currentColor" 
+              stroke-width="2" 
+              stroke-linecap="round" 
+              stroke-linejoin="round" 
+              class="text-indigo-400 mr-2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            <a href="/" class="text-2xl font-bold text-white">WikiDash</a>
+          </div>
+          <nav>
+            <ul class="flex space-x-6 text-sm text-slate-300">
+              <li><a href="/" class="hover:text-white">Home</a></li>
+              <li><a href="/about" class="hover:text-white">About</a></li>
+              <li><a href="/how-to-use" class="text-indigo-300 font-medium">How to Use</a></li>
+              <li><a href="/privacy" class="hover:text-white">Privacy</a></li>
+            </ul>
+          </nav>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div class="bg-white shadow-md rounded-xl p-8">
+        <h1 class="text-3xl font-bold text-slate-900 mb-6">How to Use WikiDash</h1>
+        
+        <div class="prose max-w-none">
+          <p class="text-lg text-slate-700 mb-8">
+            Welcome to WikiDash! This guide will help you make the most of our Wikipedia analytics dashboard. Whether you're a researcher, student, educator, or curious wiki enthusiast, our tool provides valuable insights into Wikipedia article activity.
+          </p>
+
+          <div class="mb-12">
+            <h2 class="text-2xl font-semibold text-slate-800 mb-6">Getting Started</h2>
+            
+            <div class="bg-gradient-to-r from-indigo-50 to-blue-50 rounded-lg p-6 mb-8 border border-indigo-100">
+              <h3 class="text-xl font-medium text-indigo-800 mb-4">Searching for Articles</h3>
+              <ol class="list-decimal pl-6 space-y-3">
+                <li class="text-slate-700">
+                  <span class="font-medium">Paste a Wikipedia URL:</span> The search bar is designed specifically for Wikipedia article URLs. Copy the full URL from your browser when viewing a Wikipedia page (e.g., "https://en.wikipedia.org/wiki/ChatGPT").
+                </li>
+                <li class="text-slate-700">
+                  <span class="font-medium">Submit your search:</span> Click the "Search" button or press Enter to load the article's analytics dashboard.
+                </li>
+              </ol>
+              <div class="mt-4 text-sm text-indigo-600">
+                <p>💡 <span class="font-semibold">Important note:</span> The search function currently only works with Wikipedia URLs, not article titles or keywords. Make sure to copy the complete URL from Wikipedia.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-12">
+            <h2 class="text-2xl font-semibold text-slate-800 mb-6">Understanding the Dashboard</h2>
+            
+            <div class="mb-8">
+              <h3 class="text-xl font-medium text-slate-800 mb-4">1. Metrics Overview</h3>
+              <p class="mb-4">At the top of your results, you'll see five key metrics:</p>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div class="bg-indigo-50 rounded-lg p-4 border-l-4 border-indigo-500">
+                  <h4 class="font-semibold text-indigo-700">Page Views</h4>
+                  <p class="text-sm text-slate-600">The total number of views the article has received in the analyzed period.</p>
+                </div>
+                <div class="bg-emerald-50 rounded-lg p-4 border-l-4 border-emerald-500">
+                  <h4 class="font-semibold text-emerald-700">Edits</h4>
+                  <p class="text-sm text-slate-600">The total number of edits made to the article.</p>
+                </div>
+                <div class="bg-amber-50 rounded-lg p-4 border-l-4 border-amber-500">
+                  <h4 class="font-semibold text-amber-700">Contributors</h4>
+                  <p class="text-sm text-slate-600">The number of unique editors who have modified the article.</p>
+                </div>
+                <div class="bg-red-50 rounded-lg p-4 border-l-4 border-red-500">
+                  <h4 class="font-semibold text-red-700">Reverts</h4>
+                  <p class="text-sm text-slate-600">Edits that undo previous changes, often indicating content disputes or vandalism cleanup.</p>
+                </div>
+                <div class="bg-violet-50 rounded-lg p-4 border-l-4 border-violet-500">
+                  <h4 class="font-semibold text-violet-700">References</h4>
+                  <p class="text-sm text-slate-600">The number of citations in the article, reflecting its research foundation.</p>
+                </div>
+              </div>
+            </div>
+            
+            <div class="mb-8">
+              <h3 class="text-xl font-medium text-slate-800 mb-4">2. Article Summary</h3>
+              <p class="mb-4">
+                Below the metrics, you'll find a summary of the article content directly from Wikipedia, along with a link to the full article.
+              </p>
+            </div>
+            
+            <div class="mb-8">
+              <h3 class="text-xl font-medium text-slate-800 mb-4">3. Interactive Data Visualizations</h3>
+              <p class="mb-4">The dashboard includes multiple interactive charts:</p>
+              
+              <div class="space-y-4 mb-4">
+                <div class="bg-slate-50 rounded-lg p-5 border border-slate-200">
+                  <h4 class="font-semibold text-slate-800 mb-2">Pageviews Trend</h4>
+                  <p class="text-sm text-slate-600 mb-2">Shows how article popularity changes over time. Look for spikes that might correspond to news events or public interest.</p>
+                  <p class="text-xs text-slate-500 italic">Use the time filters (7 Days, 30 Days, All) to adjust the view period.</p>
