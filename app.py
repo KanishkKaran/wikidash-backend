@@ -473,6 +473,19 @@ def get_revision_intensity():
     except Exception as e:
         return jsonify({"error": f"Unexpected error: {str(e)}", "intensity_data": {}}), 200
 
+# Static HTML page routes
+@app.route('/about')
+def about_page():
+    return app.send_static_file('about.html')
+
+@app.route('/privacy')
+def privacy_page():
+    return app.send_static_file('privacy.html')
+
+@app.route('/how-to-use')
+def how_to_use_page():
+    return app.send_static_file('how-to-use.html')
+
 # Basic health check endpoint
 @app.route('/', methods=['GET'])
 def health_check():
@@ -483,4 +496,4 @@ if __name__ == '__main__':
 
     port = int(os.environ.get('PORT', 10000))  # required by Render
     print(f"Starting Flask on 0.0.0.0:{port}")
-    app.run(host='0.0.0.0', port=port, debug=False)  
+    app.run(host='0.0.0.0', port=port, debug=False)
