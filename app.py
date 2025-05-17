@@ -437,3 +437,97 @@ def get_revision_intensity():
             "rvprop": "timestamp|user|comment",
             "rvdir": "newer"
         }
+        
+        # Get edit data
+        edit_response = requests.get(WIKI_API, params=params_edits, headers=HEADERS)
+        if edit_response.status_code != 200:
+            return jsonify({
+                "error": f"Wikipedia API request failed with status code {edit_response.status_code}",
+                "intensity_data": {}
+            }), 200
+        
+        edit_data = edit_response.json()
+        pages = edit_data.get("query", {}).get("pages", {})
+        if not pages:
+            return jsonify({"error": "No pages found in response", "intensity_data": {}}), 200
+            
+        page = next(iter(pages.values()))
+        revisions = page.get("revisions", [])
+        
+        # Process the revisions to get both edit counts and revert counts by date
+        edit_counts = defaultdict(int)
+        revert_counts = defaultdict(int)
+        editor_counts = defaultdict(set)  # Track unique editors per day
+        
+        for rev in revisions:
+            if "timestamp" not in rev:
+                continue
+                
+            date = rev["timestamp"][:10]
+            edit_counts[date] += 1
+            
+            if "user" in rev:
+                editor_counts[date].add(rev["user"])
+            
+            # Check if this is a revert
+            comment = rev.get("comment", "").lower()
+            if any(phrase in comment for phrase in ["reverted", "undo", "rv", "revert"]):
+                revert_counts[date] += 1
+        
+        # Calculate intensity based on edits, reverts, and unique editors
+        intensity_data = {}
+        all_dates = set(edit_counts.keys())
+        
+        for date in all_dates:
+            edits = edit_counts[date]
+            reverts = revert_counts[date]
+            editors = len(editor_counts[date])
+            
+            # Calculate intensity score based on real metrics:
+            # 1. Ratio of reverts to edits (conflict intensity)
+            # 2. Number of edits (activity intensity)
+            # 3. Number of editors (collaboration intensity)
+            
+            conflict_score = 0
+            if edits > 0:
+                conflict_score = (reverts / edits) * 100
+            
+            # Scale activity score logarithmically - more edits = higher intensity but with diminishing returns
+            activity_score = min(100, 20 * (1 + (edits / 10)))
+            
+            # More editors = higher intensity
+            collab_score = min(100, editors * 15)
+            
+            # Combined score (weighted average)
+            intensity = (conflict_score * 0.4) + (activity_score * 0.4) + (collab_score * 0.2)
+            
+            # Cap at 100 for visualization
+            intensity = min(100, intensity)
+            
+            intensity_data[date] = intensity
+        
+        return jsonify({
+            "intensity_data": intensity_data,
+            "hot_spots": len([score for score in intensity_data.values() if score > 50]),
+            "max_intensity": max(intensity_data.values()) if intensity_data else 0,
+            "max_date": max(intensity_data.items(), key=lambda x: x[1])[0] if intensity_data else None
+        })
+        
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Request error: {str(e)}", "intensity_data": {}}), 200
+    except ValueError as e:  # JSON decode error
+        return jsonify({"error": f"JSON decode error: {str(e)}", "intensity_data": {}}), 200
+    except Exception as e:
+        return jsonify({"error": f"Unexpected error: {str(e)}", "intensity_data": {}}), 200
+
+# Basic health check endpoint
+@app.route('/', methods=['GET'])
+def health_check():
+    return jsonify({"status": "OK", "message": "WikiDash API is running"})
+
+if __name__ == '__main__':
+    import os
+
+    port = int(os.environ.get('PORT', 10000))  # required by Render
+    print(f"Starting Flask on 0.0.0.0:{port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
