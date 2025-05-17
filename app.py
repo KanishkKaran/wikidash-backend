@@ -12,7 +12,8 @@ import requests
 from collections import defaultdict
 import os
 
-app = Flask(__name__)
+# Explicitly define static folder
+app = Flask(__name__, static_folder='static')
 
 # Enable CORS for all origins and all routes
 CORS(app, resources={r"/*": {"origins": ["https://wiki-dash.com", "http://localhost:3000"]}})
@@ -28,6 +29,73 @@ def handle_options(path):
 
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "WikiDash/1.0 (rahul@example.com)"}
+
+# Diagnostic route to test static file access
+@app.route('/test-static')
+def test_static():
+    try:
+        # List all files in the static directory
+        import os
+        files = os.listdir(app.static_folder)
+        return f"Static files found: {files}"
+    except Exception as e:
+        return f"Error accessing static files: {str(e)}", 500
+
+# Static HTML page routes with improved error handling
+@app.route('/static/about.html')
+def about_page():
+    try:
+        return app.send_static_file('about.html')
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error serving about.html: {error_details}")
+        return f"Failed to load about.html: {str(e)}", 500
+
+@app.route('/static/privacy.html')
+def privacy_page():
+    try:
+        return app.send_static_file('privacy.html')
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error serving privacy.html: {error_details}")
+        return f"Failed to load privacy.html: {str(e)}", 500
+
+@app.route('/static/how-to-use.html')
+def how_to_use_page():
+    try:
+        return app.send_static_file('how-to-use.html')
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error serving how-to-use.html: {error_details}")
+        return f"Failed to load how-to-use.html: {str(e)}", 500
+
+# Keep the original routes for compatibility
+@app.route('/about')
+def about_redirect():
+    try:
+        return app.send_static_file('about.html')
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error redirecting to about.html: {error_details}")
+        return f"Failed to redirect to about.html: {str(e)}", 500
+
+@app.route('/privacy')
+def privacy_redirect():
+    try:
+        return app.send_static_file('privacy.html')
+    except Exception as e:
+        return f"Failed to redirect to privacy.html: {str(e)}", 500
+
+@app.route('/how-to-use')
+def how_to_use_redirect():
+    try:
+        return app.send_static_file('how-to-use.html')
+    except Exception as e:
+        return f"Failed to redirect to how-to-use.html: {str(e)}", 500
 
 @app.route('/api/article', methods=['GET'])
 def get_article_data():
@@ -472,32 +540,6 @@ def get_revision_intensity():
         return jsonify({"error": f"JSON decode error: {str(e)}", "intensity_data": {}}), 200
     except Exception as e:
         return jsonify({"error": f"Unexpected error: {str(e)}", "intensity_data": {}}), 200
-
-# Static HTML page routes - updated to use direct file URLs
-@app.route('/static/about.html')
-def about_page():
-    return app.send_static_file('about.html')
-
-@app.route('/static/privacy.html')
-def privacy_page():
-    return app.send_static_file('privacy.html')
-
-@app.route('/static/how-to-use.html')
-def how_to_use_page():
-    return app.send_static_file('how-to-use.html')
-
-# Keep the original routes for compatibility
-@app.route('/about')
-def about_redirect():
-    return app.send_static_file('about.html')
-
-@app.route('/privacy')
-def privacy_redirect():
-    return app.send_static_file('privacy.html')
-
-@app.route('/how-to-use')
-def how_to_use_redirect():
-    return app.send_static_file('how-to-use.html')
 
 # Basic health check endpoint
 @app.route('/', methods=['GET'])
