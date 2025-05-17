@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, make_response, send_from_directory
+from flask import Flask, jsonify, request, make_response, send_from_directory, render_template
 from flask_cors import CORS
 from utils.wikipedia_api import (
     get_article_summary,
@@ -12,8 +12,8 @@ import requests
 from collections import defaultdict
 import os
 
-# Create Flask app with explicit static folder
-app = Flask(__name__, static_url_path='', static_folder='static')
+# Create Flask app with a more standard configuration
+app = Flask(__name__)
 
 # Enable CORS for all origins and all routes
 CORS(app, resources={r"/*": {"origins": ["https://wiki-dash.com", "http://localhost:3000"]}})
@@ -30,51 +30,94 @@ def handle_options(path):
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "WikiDash/1.0 (rahul@example.com)"}
 
-# Test route to check if static files exist
+# Test route to check static files
 @app.route('/test-static')
 def test_static():
     try:
         import os
-        files = os.listdir(app.static_folder)
-        return f"Static files found: {files}"
+        static_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+        if os.path.exists(static_path):
+            files = os.listdir(static_path)
+            files_with_size = []
+            for file in files:
+                file_path = os.path.join(static_path, file)
+                size = os.path.getsize(file_path) if os.path.isfile(file_path) else "N/A"
+                files_with_size.append(f"{file} ({size} bytes)")
+            return f"Static folder found at: {static_path}<br>Files: {files_with_size}"
+        else:
+            return f"Static folder not found at: {static_path}", 500
     except Exception as e:
-        return f"Error accessing static files: {str(e)}", 500
+        import traceback
+        error_details = traceback.format_exc()
+        return f"Error accessing static files: {str(e)}<br><pre>{error_details}</pre>", 500
 
-# Serve static HTML files with explicit send_from_directory
+# Directly return the html content for static pages
+# This approach doesn't rely on Flask's static file handling
+@app.route('/about')
+def about_page():
+    try:
+        # Try to read the file directly
+        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'about.html')
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as file:
+                content = file.read()
+                response = make_response(content)
+                response.headers['Content-Type'] = 'text/html'
+                return response
+        else:
+            return f"File not found: {file_path}", 404
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        return f"Error serving about.html: {str(e)}<br><pre>{error_details}</pre>", 500
+
+@app.route('/privacy')
+def privacy_page():
+    try:
+        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'privacy.html')
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as file:
+                content = file.read()
+                response = make_response(content)
+                response.headers['Content-Type'] = 'text/html'
+                return response
+        else:
+            return f"File not found: {file_path}", 404
+    except Exception as e:
+        return f"Error serving privacy.html: {str(e)}", 500
+
+@app.route('/how-to-use')
+def how_to_use_page():
+    try:
+        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'how-to-use.html')
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as file:
+                content = file.read()
+                response = make_response(content)
+                response.headers['Content-Type'] = 'text/html'
+                return response
+        else:
+            return f"File not found: {file_path}", 404
+    except Exception as e:
+        return f"Error serving how-to-use.html: {str(e)}", 500
+
+# Legacy routes to support static/about.html format
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     try:
-        return send_from_directory(app.static_folder, filename)
+        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', filename)
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as file:
+                content = file.read()
+                response = make_response(content)
+                response.headers['Content-Type'] = 'text/html' if filename.endswith('.html') else 'text/plain'
+                return response
+        else:
+            return f"File not found: {file_path}", 404
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
-        print(f"Error serving static file {filename}: {error_details}")
-        return f"Failed to load {filename}: {str(e)}", 500
-
-# Clean URL routes
-@app.route('/about')
-def about_redirect():
-    try:
-        return send_from_directory(app.static_folder, 'about.html')
-    except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"Error redirecting to about.html: {error_details}")
-        return f"Failed to redirect to about.html: {str(e)}", 500
-
-@app.route('/privacy')
-def privacy_redirect():
-    try:
-        return send_from_directory(app.static_folder, 'privacy.html')
-    except Exception as e:
-        return f"Failed to redirect to privacy.html: {str(e)}", 500
-
-@app.route('/how-to-use')
-def how_to_use_redirect():
-    try:
-        return send_from_directory(app.static_folder, 'how-to-use.html')
-    except Exception as e:
-        return f"Failed to redirect to how-to-use.html: {str(e)}", 500
+        return f"Error serving {filename}: {str(e)}<br><pre>{error_details}</pre>", 500
 
 @app.route('/api/article', methods=['GET'])
 def get_article_data():
