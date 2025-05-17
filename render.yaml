@@ -17,16 +17,3 @@ services:
       - path: /*
         name: Access-Control-Allow-Headers
         value: "Content-Type, Authorization"
-    routes:
-      - type: rewrite
-        source: /static/*
-        destination: /static/$1
-      - type: rewrite
-        source: /about
-        destination: /about
-      - type: rewrite
-        source: /privacy
-        destination: /privacy
-      - type: rewrite
-        source: /how-to-use
-        destination: /how-to-use
