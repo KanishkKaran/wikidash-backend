@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, make_response
+from flask import Flask, jsonify, request, make_response, send_from_directory
 from flask_cors import CORS
 from utils.wikipedia_api import (
     get_article_summary,
@@ -12,8 +12,8 @@ import requests
 from collections import defaultdict
 import os
 
-# Explicitly define static folder
-app = Flask(__name__, static_folder='static')
+# Create Flask app with explicit static folder
+app = Flask(__name__, static_url_path='', static_folder='static')
 
 # Enable CORS for all origins and all routes
 CORS(app, resources={r"/*": {"origins": ["https://wiki-dash.com", "http://localhost:3000"]}})
@@ -30,53 +30,32 @@ def handle_options(path):
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "WikiDash/1.0 (rahul@example.com)"}
 
-# Diagnostic route to test static file access
+# Test route to check if static files exist
 @app.route('/test-static')
 def test_static():
     try:
-        # List all files in the static directory
         import os
         files = os.listdir(app.static_folder)
         return f"Static files found: {files}"
     except Exception as e:
         return f"Error accessing static files: {str(e)}", 500
 
-# Static HTML page routes with improved error handling
-@app.route('/static/about.html')
-def about_page():
+# Serve static HTML files with explicit send_from_directory
+@app.route('/static/<path:filename>')
+def serve_static(filename):
     try:
-        return app.send_static_file('about.html')
+        return send_from_directory(app.static_folder, filename)
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
-        print(f"Error serving about.html: {error_details}")
-        return f"Failed to load about.html: {str(e)}", 500
+        print(f"Error serving static file {filename}: {error_details}")
+        return f"Failed to load {filename}: {str(e)}", 500
 
-@app.route('/static/privacy.html')
-def privacy_page():
-    try:
-        return app.send_static_file('privacy.html')
-    except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"Error serving privacy.html: {error_details}")
-        return f"Failed to load privacy.html: {str(e)}", 500
-
-@app.route('/static/how-to-use.html')
-def how_to_use_page():
-    try:
-        return app.send_static_file('how-to-use.html')
-    except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"Error serving how-to-use.html: {error_details}")
-        return f"Failed to load how-to-use.html: {str(e)}", 500
-
-# Keep the original routes for compatibility
+# Clean URL routes
 @app.route('/about')
 def about_redirect():
     try:
-        return app.send_static_file('about.html')
+        return send_from_directory(app.static_folder, 'about.html')
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
@@ -86,14 +65,14 @@ def about_redirect():
 @app.route('/privacy')
 def privacy_redirect():
     try:
-        return app.send_static_file('privacy.html')
+        return send_from_directory(app.static_folder, 'privacy.html')
     except Exception as e:
         return f"Failed to redirect to privacy.html: {str(e)}", 500
 
 @app.route('/how-to-use')
 def how_to_use_redirect():
     try:
-        return app.send_static_file('how-to-use.html')
+        return send_from_directory(app.static_folder, 'how-to-use.html')
     except Exception as e:
         return f"Failed to redirect to how-to-use.html: {str(e)}", 500
 
@@ -458,97 +437,3 @@ def get_revision_intensity():
             "rvprop": "timestamp|user|comment",
             "rvdir": "newer"
         }
-        
-        # Get edit data
-        edit_response = requests.get(WIKI_API, params=params_edits, headers=HEADERS)
-        if edit_response.status_code != 200:
-            return jsonify({
-                "error": f"Wikipedia API request failed with status code {edit_response.status_code}",
-                "intensity_data": {}
-            }), 200
-        
-        edit_data = edit_response.json()
-        pages = edit_data.get("query", {}).get("pages", {})
-        if not pages:
-            return jsonify({"error": "No pages found in response", "intensity_data": {}}), 200
-            
-        page = next(iter(pages.values()))
-        revisions = page.get("revisions", [])
-        
-        # Process the revisions to get both edit counts and revert counts by date
-        edit_counts = defaultdict(int)
-        revert_counts = defaultdict(int)
-        editor_counts = defaultdict(set)  # Track unique editors per day
-        
-        for rev in revisions:
-            if "timestamp" not in rev:
-                continue
-                
-            date = rev["timestamp"][:10]
-            edit_counts[date] += 1
-            
-            if "user" in rev:
-                editor_counts[date].add(rev["user"])
-            
-            # Check if this is a revert
-            comment = rev.get("comment", "").lower()
-            if any(phrase in comment for phrase in ["reverted", "undo", "rv", "revert"]):
-                revert_counts[date] += 1
-        
-        # Calculate intensity based on edits, reverts, and unique editors
-        intensity_data = {}
-        all_dates = set(edit_counts.keys())
-        
-        for date in all_dates:
-            edits = edit_counts[date]
-            reverts = revert_counts[date]
-            editors = len(editor_counts[date])
-            
-            # Calculate intensity score based on real metrics:
-            # 1. Ratio of reverts to edits (conflict intensity)
-            # 2. Number of edits (activity intensity)
-            # 3. Number of editors (collaboration intensity)
-            
-            conflict_score = 0
-            if edits > 0:
-                conflict_score = (reverts / edits) * 100
-            
-            # Scale activity score logarithmically - more edits = higher intensity but with diminishing returns
-            activity_score = min(100, 20 * (1 + (edits / 10)))
-            
-            # More editors = higher intensity
-            collab_score = min(100, editors * 15)
-            
-            # Combined score (weighted average)
-            intensity = (conflict_score * 0.4) + (activity_score * 0.4) + (collab_score * 0.2)
-            
-            # Cap at 100 for visualization
-            intensity = min(100, intensity)
-            
-            intensity_data[date] = intensity
-        
-        return jsonify({
-            "intensity_data": intensity_data,
-            "hot_spots": len([score for score in intensity_data.values() if score > 50]),
-            "max_intensity": max(intensity_data.values()) if intensity_data else 0,
-            "max_date": max(intensity_data.items(), key=lambda x: x[1])[0] if intensity_data else None
-        })
-        
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Request error: {str(e)}", "intensity_data": {}}), 200
-    except ValueError as e:  # JSON decode error
-        return jsonify({"error": f"JSON decode error: {str(e)}", "intensity_data": {}}), 200
-    except Exception as e:
-        return jsonify({"error": f"Unexpected error: {str(e)}", "intensity_data": {}}), 200
-
-# Basic health check endpoint
-@app.route('/', methods=['GET'])
-def health_check():
-    return jsonify({"status": "OK", "message": "WikiDash API is running"})
-
-if __name__ == '__main__':
-    import os
-
-    port = int(os.environ.get('PORT', 10000))  # required by Render
-    print(f"Starting Flask on 0.0.0.0:{port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
