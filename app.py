@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, make_response, send_file
+from flask import Flask, jsonify, request, make_response, send_from_directory
 from flask_cors import CORS
 from utils.wikipedia_api import (
     get_article_summary,
@@ -12,8 +12,8 @@ import requests
 from collections import defaultdict
 import os
 
-# Create Flask app with default configuration
-app = Flask(__name__)
+# Create Flask app with explicit static folder configuration
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 
 # Enable CORS for all origins and all routes
 CORS(app, resources={r"/*": {"origins": ["https://wiki-dash.com", "http://localhost:3000"]}})
@@ -30,99 +30,35 @@ def handle_options(path):
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "WikiDash/1.0 (rahul@example.com)"}
 
-# Helper function to get the absolute path to static files
-def get_static_file_path(filename):
-    # Try different possible paths for the static folder
-    possible_paths = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static'),
-        './static',
-        '../static',
-        '/app/static'  # Render specific path
-    ]
+# Route to display current path and static folder configuration
+@app.route('/debug-config')
+def debug_config():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    static_folder = app.static_folder
+    static_url_path = app.static_url_path
+    static_folder_abs = os.path.join(current_dir, static_folder) if not os.path.isabs(static_folder) else static_folder
     
-    for base_path in possible_paths:
-        full_path = os.path.join(base_path, filename)
-        if os.path.exists(full_path):
-            return full_path
-    
-    return None
+    return jsonify({
+        "current_directory": current_dir,
+        "static_folder_config": static_folder,
+        "static_url_path_config": static_url_path,
+        "static_folder_absolute": static_folder_abs,
+        "static_folder_exists": os.path.exists(static_folder_abs),
+        "files_in_static": os.listdir(static_folder_abs) if os.path.exists(static_folder_abs) else []
+    })
 
-# Test route to diagnose static file issues
-@app.route('/test-static-paths')
-def test_static_paths():
-    possible_paths = [
-        os.path.dirname(os.path.abspath(__file__)),
-        '.',
-        '..',
-        '/app'  # Render specific path
-    ]
-    
-    results = []
-    for base_path in possible_paths:
-        static_path = os.path.join(base_path, 'static')
-        exists = os.path.exists(static_path)
-        try:
-            if exists:
-                files = os.listdir(static_path)
-            else:
-                files = []
-        except Exception as e:
-            files = [f"Error: {str(e)}"]
-        
-        results.append({
-            "path": static_path,
-            "exists": exists,
-            "files": files if exists else []
-        })
-    
-    return jsonify(results)
-
-# Route for serving the test file
-@app.route('/test.html')
-def test_html():
-    file_path = get_static_file_path('test.html')
-    if file_path:
-        return send_file(file_path, mimetype='text/html')
-    else:
-        return "Test file not found. Try creating a test.html file in your static directory.", 404
-
-# Serve static HTML files with send_file
+# Clean URL routes that redirect to the static HTML files
 @app.route('/about')
-@app.route('/static/about.html')
-def about_page():
-    file_path = get_static_file_path('about.html')
-    if file_path:
-        return send_file(file_path, mimetype='text/html')
-    else:
-        return "About page not found.", 404
+def about_redirect():
+    return app.send_static_file('about.html')
 
 @app.route('/privacy')
-@app.route('/static/privacy.html')
-def privacy_page():
-    file_path = get_static_file_path('privacy.html')
-    if file_path:
-        return send_file(file_path, mimetype='text/html')
-    else:
-        return "Privacy page not found.", 404
+def privacy_redirect():
+    return app.send_static_file('privacy.html')
 
 @app.route('/how-to-use')
-@app.route('/static/how-to-use.html')
-def how_to_use_page():
-    file_path = get_static_file_path('how-to-use.html')
-    if file_path:
-        return send_file(file_path, mimetype='text/html')
-    else:
-        return "How-to-use page not found.", 404
-
-# Catch-all route for static files
-@app.route('/static/<path:filename>')
-def serve_static(filename):
-    file_path = get_static_file_path(filename)
-    if file_path:
-        mimetype = 'text/html' if filename.endswith('.html') else None
-        return send_file(file_path, mimetype=mimetype)
-    else:
-        return f"File {filename} not found.", 404
+def how_to_use_redirect():
+    return app.send_static_file('how-to-use.html')
 
 @app.route('/api/article', methods=['GET'])
 def get_article_data():
