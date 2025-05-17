@@ -12,8 +12,21 @@ import requests
 from collections import defaultdict
 import os
 
-# Create Flask app with explicit static folder configuration
-app = Flask(__name__, static_folder='static', static_url_path='/static')
+# Figure out the correct static folder path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if os.path.basename(current_dir) == 'wikidash-backend':
+    static_folder_path = os.path.join(current_dir, 'static')
+else:
+    # Try to find the wikidash-backend/static path
+    potential_path = os.path.join(current_dir, 'wikidash-backend', 'static')
+    if os.path.exists(potential_path):
+        static_folder_path = potential_path
+    else:
+        # Fallback to regular static folder
+        static_folder_path = os.path.join(current_dir, 'static')
+
+# Create Flask app with the determined static folder
+app = Flask(__name__, static_folder=static_folder_path, static_url_path='/static')
 
 # Enable CORS for all origins and all routes
 CORS(app, resources={r"/*": {"origins": ["https://wiki-dash.com", "http://localhost:3000"]}})
@@ -36,29 +49,59 @@ def debug_config():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     static_folder = app.static_folder
     static_url_path = app.static_url_path
-    static_folder_abs = os.path.join(current_dir, static_folder) if not os.path.isabs(static_folder) else static_folder
+    
+    # Check for potential static folders
+    potential_paths = [
+        os.path.join(current_dir, 'static'),
+        os.path.join(current_dir, 'wikidash-backend', 'static'),
+        '/app/static',
+        '/app/wikidash-backend/static',
+        static_folder_path
+    ]
+    
+    path_info = []
+    for path in potential_paths:
+        try:
+            exists = os.path.exists(path)
+            files = os.listdir(path) if exists else []
+        except Exception as e:
+            exists = False
+            files = [f"Error: {str(e)}"]
+        
+        path_info.append({
+            "path": path,
+            "exists": exists,
+            "files": files
+        })
     
     return jsonify({
         "current_directory": current_dir,
         "static_folder_config": static_folder,
         "static_url_path_config": static_url_path,
-        "static_folder_absolute": static_folder_abs,
-        "static_folder_exists": os.path.exists(static_folder_abs),
-        "files_in_static": os.listdir(static_folder_abs) if os.path.exists(static_folder_abs) else []
+        "potential_static_paths": path_info
     })
 
 # Clean URL routes that redirect to the static HTML files
 @app.route('/about')
 def about_redirect():
-    return app.send_static_file('about.html')
+    try:
+        return app.send_static_file('about.html')
+    except Exception as e:
+        return f"Error serving about.html: {str(e)}", 500
 
 @app.route('/privacy')
 def privacy_redirect():
-    return app.send_static_file('privacy.html')
+    try:
+        return app.send_static_file('privacy.html')
+    except Exception as e:
+        return f"Error serving privacy.html: {str(e)}", 500
 
 @app.route('/how-to-use')
 def how_to_use_redirect():
-    return app.send_static_file('how-to-use.html')
+    try:
+        return app.send_static_file('how-to-use.html')
+    except Exception as e:
+        return f"Error serving how-to-use.html: {str(e)}", 500
 
 @app.route('/api/article', methods=['GET'])
 def get_article_data():
