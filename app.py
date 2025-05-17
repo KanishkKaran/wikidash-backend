@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, make_response, send_from_directory
+from flask import Flask, jsonify, request, make_response, Response
 from flask_cors import CORS
 from utils.wikipedia_api import (
     get_article_summary,
@@ -12,21 +12,8 @@ import requests
 from collections import defaultdict
 import os
 
-# Figure out the correct static folder path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if os.path.basename(current_dir) == 'wikidash-backend':
-    static_folder_path = os.path.join(current_dir, 'static')
-else:
-    # Try to find the wikidash-backend/static path
-    potential_path = os.path.join(current_dir, 'wikidash-backend', 'static')
-    if os.path.exists(potential_path):
-        static_folder_path = potential_path
-    else:
-        # Fallback to regular static folder
-        static_folder_path = os.path.join(current_dir, 'static')
-
-# Create Flask app with the determined static folder
-app = Flask(__name__, static_folder=static_folder_path, static_url_path='/static')
+# Create Flask app without static folder configuration
+app = Flask(__name__)
 
 # Enable CORS for all origins and all routes
 CORS(app, resources={r"/*": {"origins": ["https://wiki-dash.com", "http://localhost:3000"]}})
@@ -43,65 +30,726 @@ def handle_options(path):
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 HEADERS = {"User-Agent": "WikiDash/1.0 (rahul@example.com)"}
 
-# Route to display current path and static folder configuration
-@app.route('/debug-config')
-def debug_config():
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    static_folder = app.static_folder
-    static_url_path = app.static_url_path
-    
-    # Check for potential static folders
-    potential_paths = [
-        os.path.join(current_dir, 'static'),
-        os.path.join(current_dir, 'wikidash-backend', 'static'),
-        '/app/static',
-        '/app/wikidash-backend/static',
-        static_folder_path
-    ]
-    
-    path_info = []
-    for path in potential_paths:
-        try:
-            exists = os.path.exists(path)
-            files = os.listdir(path) if exists else []
-        except Exception as e:
-            exists = False
-            files = [f"Error: {str(e)}"]
-        
-        path_info.append({
-            "path": path,
-            "exists": exists,
-            "files": files
-        })
-    
-    return jsonify({
-        "current_directory": current_dir,
-        "static_folder_config": static_folder,
-        "static_url_path_config": static_url_path,
-        "potential_static_paths": path_info
-    })
-
-# Clean URL routes that redirect to the static HTML files
+# Embedding HTML content directly
 @app.route('/about')
-def about_redirect():
-    try:
-        return app.send_static_file('about.html')
-    except Exception as e:
-        return f"Error serving about.html: {str(e)}", 500
+@app.route('/static/about.html')
+def about_page():
+    # About page HTML content from your static/about.html file
+    html_content = """<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>About WikiDash - Wikipedia Analytics Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+  </head>
+  <body class="bg-slate-50 text-slate-800">
+    <header class="bg-slate-900 py-4 shadow-md">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center">
+            <svg 
+              xmlns="http://www.w3.org/2000/svg" 
+              width="28" 
+              height="28" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="currentColor" 
+              stroke-width="2" 
+              stroke-linecap="round" 
+              stroke-linejoin="round" 
+              class="text-indigo-400 mr-2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            <a href="/" class="text-2xl font-bold text-white">WikiDash</a>
+          </div>
+          <nav>
+            <ul class="flex space-x-6 text-sm text-slate-300">
+              <li><a href="/" class="hover:text-white">Home</a></li>
+              <li><a href="/about" class="text-indigo-300 font-medium">About</a></li>
+              <li><a href="/how-to-use" class="hover:text-white">How to Use</a></li>
+              <li><a href="/privacy" class="hover:text-white">Privacy</a></li>
+            </ul>
+          </nav>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div class="bg-white shadow-md rounded-xl overflow-hidden">
+        <div class="p-8">
+          <h1 class="text-3xl font-bold text-slate-900 mb-6">About WikiDash</h1>
+          
+          <div class="prose max-w-none">
+            <div class="mb-10">
+              <p class="text-lg text-slate-700 leading-relaxed">
+                WikiDash is an interactive analytics dashboard that visualizes Wikipedia article data, 
+                providing insights into page popularity, edit history, contributor networks, and content evolution over time.
+              </p>
+            </div>
+            
+            <div class="mb-10">
+              <h2 class="text-2xl font-semibold text-slate-800 mb-4">Our Mission</h2>
+              <p class="text-slate-700 mb-4">
+                WikiDash was created to make Wikipedia's wealth of metadata accessible and meaningful to everyone. 
+                Our mission is to promote understanding of how collaborative knowledge is created, maintained, and 
+                evolves on the world's largest encyclopedia.
+              </p>
+              <p class="text-slate-700">
+                By providing visual analytics on Wikipedia's edit history, contributor networks, and content patterns, 
+                we aim to support educators, researchers, journalists, and curious readers in exploring the stories behind 
+                the articles.
+              </p>
+            </div>
+            
+            <div class="mb-10">
+              <h2 class="text-2xl font-semibold text-slate-800 mb-4">What WikiDash Offers</h2>
+              
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                <div class="bg-indigo-50 rounded-lg p-6 border border-indigo-100">
+                  <div class="flex items-center mb-4">
+                    <div class="bg-indigo-100 p-2 rounded-full">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
+                    </div>
+                    <h3 class="ml-3 text-xl font-medium text-indigo-800">Comprehensive Analytics</h3>
+                  </div>
+                  <p class="text-slate-700">
+                    Multiple data visualizations provide a complete picture of an article's history, 
+                    popularity, and development patterns.
+                  </p>
+                </div>
+                
+                <div class="bg-emerald-50 rounded-lg p-6 border border-emerald-100">
+                  <div class="flex items-center mb-4">
+                    <div class="bg-emerald-100 p-2 rounded-full">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                    </div>
+                    <h3 class="ml-3 text-xl font-medium text-emerald-800">Editor Insights</h3>
+                  </div>
+                  <p class="text-slate-700">
+                    Discover who contributes to Wikipedia articles, their editing patterns, 
+                    and how they collaborate or conflict with other editors.
+                  </p>
+                </div>
+                
+                <div class="bg-amber-50 rounded-lg p-6 border border-amber-100">
+                  <div class="flex items-center mb-4">
+                    <div class="bg-amber-100 p-2 rounded-full">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <h3 class="ml-3 text-xl font-medium text-amber-800">Controversy Detection</h3>
+                  </div>
+                  <p class="text-slate-700">
+                    Identify contentious topics through revert patterns, edit intensity, 
+                    and contributor interactions, revealing editorial disputes.
+                  </p>
+                </div>
+                
+                <div class="bg-violet-50 rounded-lg p-6 border border-violet-100">
+                  <div class="flex items-center mb-4">
+                    <div class="bg-violet-100 p-2 rounded-full">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-violet-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    <h3 class="ml-3 text-xl font-medium text-violet-800">Citation Analysis</h3>
+                  </div>
+                  <p class="text-slate-700">
+                    Evaluate the strength of an article's sources with citation metrics and 
+                    breakdowns of reference types.
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            <div class="mb-10">
+              <h2 class="text-2xl font-semibold text-slate-800 mb-4">Get Started Now</h2>
+              <p class="text-slate-700 mb-6">
+                Ready to explore the stories behind Wikipedia articles? Simply paste a Wikipedia article URL
+                in the search bar on our home page and start your journey into collaborative knowledge creation.
+              </p>
+              
+              <div class="flex justify-center">
+                <a href="/" class="inline-block px-8 py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-md">
+                  Go to WikiDash Home
+                </a>
+              </div>
+            </div>
+            
+            <div class="pt-8 mt-8 border-t border-slate-200">
+              <h2 class="text-2xl font-semibold text-slate-800 mb-4">Contact Us</h2>
+              <p class="text-slate-700">
+                Have questions, suggestions, or feedback about WikiDash? We'd love to hear from you!
+                Contact our team at <a href="mailto:info@wiki-dash.com" class="text-indigo-600 hover:text-indigo-800">info@wiki-dash.com</a>.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+    
+    <footer class="bg-slate-900 text-slate-400 py-8 mt-16">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex flex-col md:flex-row justify-between items-center">
+          <div class="flex items-center mb-4 md:mb-0">
+            <svg 
+              xmlns="http://www.w3.org/2000/svg" 
+              width="20" 
+              height="20" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="currentColor" 
+              stroke-width="2" 
+              stroke-linecap="round" 
+              stroke-linejoin="round" 
+              class="text-indigo-400 mr-2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            <p class="text-sm">WikiDash</p>
+          </div>
+          <p class="text-xs">Data sourced from Wikipedia API • Created for education and analysis</p>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>"""
+    return Response(html_content, mimetype='text/html')
 
 @app.route('/privacy')
-def privacy_redirect():
-    try:
-        return app.send_static_file('privacy.html')
-    except Exception as e:
-        return f"Error serving privacy.html: {str(e)}", 500
+@app.route('/static/privacy.html')
+def privacy_page():
+    # Privacy policy HTML content from your static/privacy.html file
+    html_content = """<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy - WikiDash</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+  </head>
+  <body class="bg-slate-50 text-slate-800">
+    <header class="bg-slate-900 py-4 shadow-md">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center">
+            <svg 
+              xmlns="http://www.w3.org/2000/svg" 
+              width="28" 
+              height="28" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="currentColor" 
+              stroke-width="2" 
+              stroke-linecap="round" 
+              stroke-linejoin="round" 
+              class="text-indigo-400 mr-2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            <a href="/" class="text-2xl font-bold text-white">WikiDash</a>
+          </div>
+          <nav>
+            <ul class="flex space-x-6 text-sm text-slate-300">
+              <li><a href="/" class="hover:text-white">Home</a></li>
+              <li><a href="/about" class="hover:text-white">About</a></li>
+              <li><a href="/how-to-use" class="hover:text-white">How to Use</a></li>
+              <li><a href="/privacy" class="text-indigo-300 font-medium">Privacy</a></li>
+            </ul>
+          </nav>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div class="bg-white shadow-md rounded-xl p-8">
+        <h1 class="text-3xl font-bold text-slate-900 mb-6">Privacy Policy</h1>
+        
+        <div class="prose max-w-none">
+          <p class="text-lg text-slate-700 mb-8">
+            At WikiDash, we respect your privacy and are committed to protecting your personal information. 
+            This Privacy Policy explains how we collect, use, and safeguard your data when you use our service.
+          </p>
+
+          <div class="mb-8">
+            <h2 class="text-2xl font-semibold text-slate-800 mb-4">Information We Collect</h2>
+            
+            <h3 class="text-xl font-medium text-slate-800 mb-2">Usage Data</h3>
+            <p class="text-slate-700 mb-4">
+              WikiDash collects anonymous usage data to improve our service. This includes:
+            </p>
+            <ul class="list-disc pl-6 space-y-2 mb-6">
+              <li class="text-slate-700">Wikipedia articles you analyze</li>
+              <li class="text-slate-700">Features you interact with</li>
+              <li class="text-slate-700">Time spent on the platform</li>
+              <li class="text-slate-700">Browser type and version</li>
+              <li class="text-slate-700">Device type and screen size</li>
+            </ul>
+            
+            <h3 class="text-xl font-medium text-slate-800 mb-2">No Personal Information</h3>
+            <p class="text-slate-700 mb-4">
+              WikiDash does not require you to create an account or provide any personal information to use our service. 
+              We do not collect names, email addresses, or other personally identifiable information.
+            </p>
+            
+            <div class="bg-blue-50 p-6 rounded-lg border border-blue-100 mb-6">
+              <h4 class="font-medium text-blue-800 mb-2">Cookies</h4>
+              <p class="text-slate-700">
+                WikiDash uses only essential cookies necessary for the website to function properly. 
+                We do not use tracking or advertising cookies. The essential cookies store information such as your 
+                preference settings and session data to make the website work correctly.
+              </p>
+            </div>
+          </div>
+          
+          <div class="mb-8">
+            <h2 class="text-2xl font-semibold text-slate-800 mb-4">How We Use Your Information</h2>
+            
+            <p class="text-slate-700 mb-4">
+              We use the collected anonymous usage data solely to:
+            </p>
+            
+            <ul class="list-disc pl-6 space-y-2 mb-6">
+              <li class="text-slate-700">Improve and optimize our service</li>
+              <li class="text-slate-700">Fix bugs and address technical issues</li>
+              <li class="text-slate-700">Develop new features based on user behavior</li>
+              <li class="text-slate-700">Generate anonymous, aggregated statistics about usage patterns</li>
+            </ul>
+            
+            <div class="bg-emerald-50 p-6 rounded-lg border border-emerald-100">
+              <h4 class="font-medium text-emerald-800 mb-2">Wikipedia Data</h4>
+              <p class="text-slate-700">
+                The Wikipedia article data displayed in WikiDash is obtained through the public Wikipedia API. 
+                We process and visualize this data but do not permanently store article content on our servers. 
+                All visualizations are generated on-demand when you search for an article.
+              </p>
+            </div>
+          </div>
+          
+          <div class="mb-8">
+            <h2 class="text-2xl font-semibold text-slate-800 mb-4">Data Sharing and Third Parties</h2>
+            
+            <p class="text-slate-700 mb-6">
+              WikiDash does not sell, rent, or share any user data with third parties. The only exceptions are:
+            </p>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div class="bg-slate-50 rounded-lg p-5 border border-slate-200">
+                <h4 class="font-medium text-slate-800 mb-2">Service Providers</h4>
+                <p class="text-sm text-slate-600">
+                  We use trusted third-party service providers for hosting, analytics, and monitoring. 
+                  These providers are bound by strict confidentiality agreements and only process data on our behalf.
+                </p>
+              </div>
+              
+              <div class="bg-slate-50 rounded-lg p-5 border border-slate-200">
+                <h4 class="font-medium text-slate-800 mb-2">Legal Requirements</h4>
+                <p class="text-sm text-slate-600">
+                  We may disclose information if required to do so by law or in response to valid requests 
+                  by public authorities (e.g., a court or government agency).
+                </p>
+              </div>
+            </div>
+          </div>
+          
+          <div class="mb-8">
+            <h2 class="text-2xl font-semibold text-slate-800 mb-4">Data Security</h2>
+            
+            <p class="text-slate-700 mb-4">
+              We implement appropriate technical and organizational measures to protect your data against 
+              unauthorized access, alteration, disclosure, or destruction. These include:
+            </p>
+            
+            <ul class="list-disc pl-6 space-y-2">
+              <li class="text-slate-700">Secure HTTPS connection for all website traffic</li>
+              <li class="text-slate-700">Regular security assessments of our infrastructure</li>
+              <li class="text-slate-700">Limited access to servers and data by authorized personnel only</li>
+            </ul>
+          </div>
+          
+          <div class="mb-8">
+            <h2 class="text-2xl font-semibold text-slate-800 mb-4">Children's Privacy</h2>
+            
+            <p class="text-slate-700 mb-4">
+              WikiDash does not knowingly collect data from children under 13 years of age. Our service is
+              intended for educational and research purposes and may be used by students under appropriate
+              supervision. We do not require any personal information that would identify a child.
+            </p>
+          </div>
+          
+          <div class="mb-8">
+            <h2 class="text-2xl font-semibold text-slate-800 mb-4">Changes to This Privacy Policy</h2>
+            
+            <p class="text-slate-700 mb-4">
+              We may update our Privacy Policy from time to time. We will notify you of any changes by posting
+              the new Privacy Policy on this page and updating the "last updated" date. You are advised to
+              review this Privacy Policy periodically for any changes.
+            </p>
+            
+            <div class="bg-amber-50 p-4 rounded-lg border border-amber-100">
+              <p class="text-amber-800 text-sm">
+                <strong>Last updated:</strong> May 15, 2023
+              </p>
+            </div>
+          </div>
+          
+          <div class="pt-8 mt-8 border-t border-slate-200">
+            <h2 class="text-2xl font-semibold text-slate-800 mb-4">Contact Us</h2>
+            <p class="text-slate-700">
+              If you have any questions about this Privacy Policy, please contact us at:
+              <a href="mailto:privacy@wiki-dash.com" class="text-indigo-600 hover:text-indigo-800">privacy@wiki-dash.com</a>
+            </p>
+          </div>
+        </div>
+      </div>
+    </main>
+    
+    <footer class="bg-slate-900 text-slate-400 py-8 mt-16">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex flex-col md:flex-row justify-between items-center">
+          <div class="flex items-center mb-4 md:mb-0">
+            <svg 
+              xmlns="http://www.w3.org/2000/svg" 
+              width="20" 
+              height="20" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="currentColor" 
+              stroke-width="2" 
+              stroke-linecap="round" 
+              stroke-linejoin="round" 
+              class="text-indigo-400 mr-2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            <p class="text-sm">WikiDash</p>
+          </div>
+          <p class="text-xs">Data sourced from Wikipedia API • Created for education and analysis</p>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>"""
+    return Response(html_content, mimetype='text/html')
 
 @app.route('/how-to-use')
-def how_to_use_redirect():
-    try:
-        return app.send_static_file('how-to-use.html')
-    except Exception as e:
-        return f"Error serving how-to-use.html: {str(e)}", 500
+@app.route('/static/how-to-use.html')
+def how_to_use_page():
+    # How to use page HTML content from your static/how-to-use.html file
+    html_content = """<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>How to Use - WikiDash</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+  </head>
+  <body class="bg-slate-50 text-slate-800">
+    <header class="bg-slate-900 py-4 shadow-md">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center">
+            <svg 
+              xmlns="http://www.w3.org/2000/svg" 
+              width="28" 
+              height="28" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="currentColor" 
+              stroke-width="2" 
+              stroke-linecap="round" 
+              stroke-linejoin="round" 
+              class="text-indigo-400 mr-2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            <a href="/" class="text-2xl font-bold text-white">WikiDash</a>
+          </div>
+          <nav>
+            <ul class="flex space-x-6 text-sm text-slate-300">
+              <li><a href="/" class="hover:text-white">Home</a></li>
+              <li><a href="/about" class="hover:text-white">About</a></li>
+              <li><a href="/how-to-use" class="text-indigo-300 font-medium">How to Use</a></li>
+              <li><a href="/privacy" class="hover:text-white">Privacy</a></li>
+            </ul>
+          </nav>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div class="bg-white shadow-md rounded-xl p-8">
+        <h1 class="text-3xl font-bold text-slate-900 mb-6">How to Use WikiDash</h1>
+        
+        <div class="prose max-w-none">
+          <p class="text-lg text-slate-700 mb-8">
+            Welcome to WikiDash! This guide will help you make the most of our Wikipedia analytics dashboard. Whether you're a researcher, student, educator, or curious wiki enthusiast, our tool provides valuable insights into Wikipedia article activity.
+          </p>
+
+          <div class="mb-12">
+            <h2 class="text-2xl font-semibold text-slate-800 mb-6">Getting Started</h2>
+            
+            <div class="bg-gradient-to-r from-indigo-50 to-blue-50 rounded-lg p-6 mb-8 border border-indigo-100">
+              <h3 class="text-xl font-medium text-indigo-800 mb-4">Searching for Articles</h3>
+              <ol class="list-decimal pl-6 space-y-3">
+                <li class="text-slate-700">
+                  <span class="font-medium">Paste a Wikipedia URL:</span> The search bar is designed specifically for Wikipedia article URLs. Copy the full URL from your browser when viewing a Wikipedia page (e.g., "https://en.wikipedia.org/wiki/ChatGPT").
+                </li>
+                <li class="text-slate-700">
+                  <span class="font-medium">Submit your search:</span> Click the "Search" button or press Enter to load the article's analytics dashboard.
+                </li>
+              </ol>
+              <div class="mt-4 text-sm text-indigo-600">
+                <p>💡 <span class="font-semibold">Important note:</span> The search function currently only works with Wikipedia URLs, not article titles or keywords. Make sure to copy the complete URL from Wikipedia.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-12">
+            <h2 class="text-2xl font-semibold text-slate-800 mb-6">Understanding the Dashboard</h2>
+            
+            <div class="mb-8">
+              <h3 class="text-xl font-medium text-slate-800 mb-4">1. Metrics Overview</h3>
+              <p class="mb-4">At the top of your results, you'll see five key metrics:</p>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div class="bg-indigo-50 rounded-lg p-4 border-l-4 border-indigo-500">
+                  <h4 class="font-semibold text-indigo-700">Page Views</h4>
+                  <p class="text-sm text-slate-600">The total number of views the article has received in the analyzed period.</p>
+                </div>
+                <div class="bg-emerald-50 rounded-lg p-4 border-l-4 border-emerald-500">
+                  <h4 class="font-semibold text-emerald-700">Edits</h4>
+                  <p class="text-sm text-slate-600">The total number of edits made to the article.</p>
+                </div>
+                <div class="bg-amber-50 rounded-lg p-4 border-l-4 border-amber-500">
+                  <h4 class="font-semibold text-amber-700">Contributors</h4>
+                  <p class="text-sm text-slate-600">The number of unique editors who have modified the article.</p>
+                </div>
+                <div class="bg-red-50 rounded-lg p-4 border-l-4 border-red-500">
+                  <h4 class="font-semibold text-red-700">Reverts</h4>
+                  <p class="text-sm text-slate-600">Edits that undo previous changes, often indicating content disputes or vandalism cleanup.</p>
+                </div>
+                <div class="bg-violet-50 rounded-lg p-4 border-l-4 border-violet-500">
+                  <h4 class="font-semibold text-violet-700">References</h4>
+                  <p class="text-sm text-slate-600">The number of citations in the article, reflecting its research foundation.</p>
+                </div>
+              </div>
+            </div>
+            
+            <div class="mb-8">
+              <h3 class="text-xl font-medium text-slate-800 mb-4">2. Article Summary</h3>
+              <p class="mb-4">
+                Below the metrics, you'll find a summary of the article content directly from Wikipedia, along with a link to the full article.
+              </p>
+            </div>
+            
+            <div class="mb-8">
+              <h3 class="text-xl font-medium text-slate-800 mb-4">3. Interactive Data Visualizations</h3>
+              <p class="mb-4">The dashboard includes multiple interactive charts:</p>
+              
+              <div class="space-y-4 mb-4">
+                <div class="bg-slate-50 rounded-lg p-5 border border-slate-200">
+                  <h4 class="font-semibold text-slate-800 mb-2">Pageviews Trend</h4>
+                  <p class="text-sm text-slate-600 mb-2">Shows how article popularity changes over time. Look for spikes that might correspond to news events or public interest.</p>
+                  <p class="text-xs text-slate-500 italic">Use the time filters (7 Days, 30 Days, All) to adjust the view period.</p>
+                </div>
+                
+                <div class="bg-slate-50 rounded-lg p-5 border border-slate-200">
+                  <h4 class="font-semibold text-slate-800 mb-2">Edit Activity</h4>
+                  <p class="text-sm text-slate-600 mb-2">Visualizes when edits occurred over time, showing how actively the content is maintained.</p>
+                  <p class="text-xs text-slate-500 italic">Higher peaks indicate periods of intense editing activity.</p>
+                </div>
+                
+                <div class="bg-slate-50 rounded-lg p-5 border border-slate-200">
+                  <h4 class="font-semibold text-slate-800 mb-2">Top Contributors</h4>
+                  <p class="text-sm text-slate-600 mb-2">Shows which editors have made the most changes to the article.</p>
+                  <p class="text-xs text-slate-500 italic">Click on any editor's bar to view their detailed profile below.</p>
+                </div>
+                
+                <div class="bg-slate-50 rounded-lg p-5 border border-slate-200">
+                  <h4 class="font-semibold text-slate-800 mb-2">Revert Activity</h4>
+                  <p class="text-sm text-slate-600 mb-2">Identifies editors who frequently revert changes, which can indicate content disputes or vandalism management.</p>
+                </div>
+                
+                <div class="bg-slate-50 rounded-lg p-5 border border-slate-200">
+                  <h4 class="font-semibold text-slate-800 mb-2">Revision Intensity</h4>
+                  <p class="text-sm text-slate-600 mb-2">Measures the level of editorial activity and potential controversy over time.</p>
+                  <p class="text-xs text-slate-500 italic">Higher intensity scores might indicate periods of content disputes or significant updates.</p>
+                </div>
+                
+                <div class="bg-slate-50 rounded-lg p-5 border border-slate-200">
+                  <h4 class="font-semibold text-slate-800 mb-2">Editor Profile</h4>
+                  <p class="text-sm text-slate-600 mb-2">Shows the distribution of a selected editor's contributions across different articles.</p>
+                  <p class="text-xs text-slate-500 italic">Use the dropdown to select different editors and explore their editing patterns.</p>
+                </div>
+                
+                <div class="bg-slate-50 rounded-lg p-5 border border-slate-200">
+                  <h4 class="font-semibold text-slate-800 mb-2">Editor Network</h4>
+                  <p class="text-sm text-slate-600 mb-2">An interactive visualization showing relationships between editors who work on the article.</p>
+                  <p class="text-xs text-slate-500 italic">Hover over nodes to see connections and drag nodes to explore the network structure.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-12">
+            <h2 class="text-2xl font-semibold text-slate-800 mb-6">Advanced Usage Tips</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              <div class="bg-white rounded-lg p-5 shadow-md border border-slate-100">
+                <div class="flex items-start mb-3">
+                  <div class="bg-indigo-100 p-2 rounded-full mr-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                  </div>
+                  <h3 class="text-lg font-medium text-slate-800">Compare Articles</h3>
+                </div>
+                <p class="text-sm text-slate-600">
+                  Open multiple browser tabs with different articles to compare their analytics side by side. This is useful for research and tracking related topics.
+                </p>
+              </div>
+              
+              <div class="bg-white rounded-lg p-5 shadow-md border border-slate-100">
+                <div class="flex items-start mb-3">
+                  <div class="bg-indigo-100 p-2 rounded-full mr-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <h3 class="text-lg font-medium text-slate-800">Track Over Time</h3>
+                </div>
+                <p class="text-sm text-slate-600">
+                  Return periodically to the same article to see how metrics change, especially after major news events related to the topic.
+                </p>
+              </div>
+              
+              <div class="bg-white rounded-lg p-5 shadow-md border border-slate-100">
+                <div class="flex items-start mb-3">
+                  <div class="bg-indigo-100 p-2 rounded-full mr-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                    </svg>
+                  </div>
+                  <h3 class="text-lg font-medium text-slate-800">Identify Controversy</h3>
+                </div>
+                <p class="text-sm text-slate-600">
+                  Look for high revert counts and high revision intensity as indicators of contentious topics or editorial disputes.
+                </p>
+              </div>
+              
+              <div class="bg-white rounded-lg p-5 shadow-md border border-slate-100">
+                <div class="flex items-start mb-3">
+                  <div class="bg-indigo-100 p-2 rounded-full mr-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                    </svg>
+                  </div>
+                  <h3 class="text-lg font-medium text-slate-800">Explore Editor Networks</h3>
+                </div>
+                <p class="text-sm text-slate-600">
+                  Use the editor network visualization to understand collaboration patterns and identify key community members who maintain content.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-12">
+            <h2 class="text-2xl font-semibold text-slate-800 mb-6">Troubleshooting</h2>
+            
+            <div class="bg-amber-50 rounded-lg p-6 border border-amber-200">
+              <h3 class="text-lg font-medium text-amber-800 mb-4">Common Issues and Solutions</h3>
+              
+              <div class="space-y-4">
+                <div>
+                  <h4 class="font-semibold text-slate-800">Invalid URL Format</h4>
+                  <p class="text-sm text-slate-600">
+                    Make sure to copy the complete Wikipedia URL. The URL should begin with "https://en.wikipedia.org/wiki/" followed by the article name. If you're copying from a Wikipedia page, use the URL from your browser's address bar.
+                  </p>
+                </div>
+                
+                <div>
+                  <h4 class="font-semibold text-slate-800">Missing Data</h4>
+                  <p class="text-sm text-slate-600">
+                    For very new articles or extremely obscure topics, some visualizations may show limited data. Try searching for more established articles if you encounter this issue.
+                  </p>
+                </div>
+                
+                <div>
+                  <h4 class="font-semibold text-slate-800">Loading Time</h4>
+                  <p class="text-sm text-slate-600">
+                    Articles with extensive edit histories might take longer to load. Please be patient as we gather and process the data from Wikipedia's API.
+                  </p>
+                </div>
+                
+                <div>
+                  <h4 class="font-semibold text-slate-800">Browser Compatibility</h4>
+                  <p class="text-sm text-slate-600">
+                    WikiDash works best on modern browsers. If you experience display issues, try updating your browser to the latest version.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-8 pt-6 border-t border-slate-200">
+            <h2 class="text-2xl font-semibold text-slate-800 mb-4">Need More Help?</h2>
+            <p class="text-slate-700 mb-4">
+              If you have questions, suggestions, or encounter issues not covered in this guide, please contact us at support@wiki-dash.com.
+            </p>
+            <p class="text-slate-700">
+              We're continually improving WikiDash based on user feedback to make Wikipedia analytics more accessible and useful for everyone.
+            </p>
+          </div>
+        </div>
+      </div>
+    </main>
+    
+    <footer class="bg-slate-900 text-slate-400 py-8 mt-16">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex flex-col md:flex-row justify-between items-center">
+          <div class="flex items-center mb-4 md:mb-0">
+            <svg 
+              xmlns="http://www.w3.org/2000/svg" 
+              width="20" 
+              height="20" 
+              viewBox="0 0 24 24" 
+              fill="none" 
+              stroke="currentColor" 
+              stroke-width="2" 
+              stroke-linecap="round" 
+              stroke-linejoin="round" 
+              class="text-indigo-400 mr-2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            <p class="text-sm">WikiDash</p>
+          </div>
+          <p class="text-xs">Data sourced from Wikipedia API • Created for education and analysis</p>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>"""
+    return Response(html_content, mimetype='text/html')
 
 @app.route('/api/article', methods=['GET'])
 def get_article_data():
