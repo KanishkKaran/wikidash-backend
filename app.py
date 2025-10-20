@@ -989,7 +989,11 @@ def get_user_article_edits(username):
         }), 200
     
     try:
-        # Get user's revisions for this specific article
+        # DEBUG: Print what we're actually querying for
+        print(f"🔍 Backend: Fetching edits for user '{username}' on article '{title}'")
+        
+        # FIXED: Get user's revisions for this specific article
+        # The key fix is adding rvuser parameter to filter by the specific user
         params = {
             "action": "query",
             "format": "json",
@@ -997,12 +1001,16 @@ def get_user_article_edits(username):
             "titles": title,
             "rvlimit": "20",  # Get last 20 edits by this user
             "rvprop": "ids|timestamp|user|comment|size",
-            "rvuser": username,
+            "rvuser": username,  # 🔥 THIS IS THE CRITICAL FIX - filter by user!
             "rvdir": "older"
         }
         
+        # DEBUG: Print the actual API call being made
+        print(f"📡 Backend: Wikipedia API params: {params}")
+        
         response = requests.get(WIKI_API, params=params, headers=HEADERS, timeout=10)
         if response.status_code != 200:
+            print(f"❌ Backend: Wikipedia API failed with status {response.status_code}")
             return jsonify({
                 "error": f"Wikipedia API request failed with status code {response.status_code}",
                 "edits": [],
@@ -1010,8 +1018,19 @@ def get_user_article_edits(username):
             }), 200
         
         data = response.json()
+        
+        # DEBUG: Check if Wikipedia returned an error
+        if "error" in data:
+            print(f"❌ Backend: Wikipedia API error: {data['error']}")
+            return jsonify({
+                "error": f"Wikipedia API error: {data['error']}",
+                "edits": [],
+                "totalEdits": 0
+            }), 200
+        
         pages = data.get("query", {}).get("pages", {})
         if not pages:
+            print(f"⚠️ Backend: No pages found for title '{title}'")
             return jsonify({
                 "error": "No pages found",
                 "edits": [],
@@ -1019,12 +1038,28 @@ def get_user_article_edits(username):
             }), 200
         
         page = next(iter(pages.values()))
-        revisions = page.get("revisions", [])
         
-        if not revisions:
+        # Check if the page exists
+        if "missing" in page:
+            print(f"⚠️ Backend: Page '{title}' does not exist")
             return jsonify({
+                "error": f"Page '{title}' does not exist",
                 "edits": [],
                 "totalEdits": 0
+            }), 200
+        
+        revisions = page.get("revisions", [])
+        
+        # DEBUG: Log what we found
+        print(f"✅ Backend: Found {len(revisions)} revisions for user '{username}' on '{title}'")
+        
+        if not revisions:
+            print(f"ℹ️ Backend: User '{username}' has no edits on article '{title}'")
+            return jsonify({
+                "edits": [],
+                "totalEdits": 0,
+                "username": username,
+                "article": title
             })
         
         edit_diffs = []
@@ -1035,30 +1070,69 @@ def get_user_article_edits(username):
             parent_id = revision.get("parentid")
             timestamp = revision.get("timestamp", "")
             comment = revision.get("comment", "No edit summary")
+            user = revision.get("user", "")
+            
+            # VERIFY: Make sure this revision is actually by the requested user
+            if user != username:
+                print(f"⚠️ Backend: Warning - found revision by '{user}' when querying for '{username}'")
+                continue
+            
+            # Calculate size change
+            size_change = 0
+            if i + 1 < len(revisions):
+                current_size = revision.get("size", 0)
+                previous_size = revisions[i + 1].get("size", 0)
+                size_change = current_size - previous_size
             
             # Get the diff for this revision
+            diff_data = None
             if parent_id:
                 diff_data = get_revision_diff(parent_id, rev_id)
-                if diff_data:
-                    edit_diffs.append({
-                        "revid": rev_id,
-                        "parentid": parent_id,
-                        "timestamp": timestamp,
-                        "comment": comment,
-                        "additions": diff_data.get("additions", []),
-                        "deletions": diff_data.get("deletions", []),
-                        "unchanged": diff_data.get("unchanged", []),
-                        "size_change": revision.get("size", 0) - revisions[i+1].get("size", 0) if i+1 < len(revisions) else 0
-                    })
+            
+            edit_entry = {
+                "revid": rev_id,
+                "parentid": parent_id,
+                "timestamp": timestamp,
+                "comment": comment,
+                "user": user,  # Include user for verification
+                "size_change": size_change
+            }
+            
+            # Add diff data if available
+            if diff_data:
+                edit_entry.update({
+                    "additions": diff_data.get("additions", []),
+                    "deletions": diff_data.get("deletions", []),
+                    "unchanged": diff_data.get("unchanged", [])
+                })
+            else:
+                # Provide empty arrays if no diff data
+                edit_entry.update({
+                    "additions": [],
+                    "deletions": [],
+                    "unchanged": []
+                })
+            
+            edit_diffs.append(edit_entry)
         
-        return jsonify({
+        # DEBUG: Log final result
+        print(f"✅ Backend: Returning {len(edit_diffs)} processed edits for '{username}'")
+        
+        result = {
             "edits": edit_diffs,
             "totalEdits": len(revisions),
             "username": username,
             "article": title
-        })
+        }
+        
+        # DEBUG: Log a sample of what we're returning
+        if edit_diffs:
+            print(f"📋 Backend: Sample edit - RevID: {edit_diffs[0].get('revid')}, User: {edit_diffs[0].get('user')}, Comment: {edit_diffs[0].get('comment', '')[:50]}...")
+        
+        return jsonify(result)
         
     except Exception as e:
+        print(f"❌ Backend: Unexpected error in get_user_article_edits: {str(e)}")
         return jsonify({
             "error": f"Unexpected error: {str(e)}",
             "edits": [],
