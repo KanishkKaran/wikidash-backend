@@ -15,6 +15,7 @@ import time
 import re
 from datetime import datetime
 from functools import wraps
+from html import unescape
 
 # Create Flask app
 app = Flask(__name__)
@@ -193,6 +194,90 @@ def how_to_use_page():
 </body>
 </html>"""
     return Response(html_content, mimetype='text/html')
+
+# Helper functions for Wikipedia diff parsing
+def get_revision_diff(from_rev, to_rev):
+    """Get the diff between two revisions using Wikipedia's compare API"""
+    try:
+        params = {
+            "action": "compare",
+            "format": "json",
+            "fromrev": from_rev,
+            "torev": to_rev,
+            "prop": "diff"
+        }
+        
+        response = requests.get(WIKI_API, params=params, headers=HEADERS, timeout=10)
+        if response.status_code != 200:
+            return None
+        
+        data = response.json()
+        diff_html = data.get("compare", {}).get("*", "")
+        
+        if not diff_html:
+            return None
+        
+        # Parse the diff HTML to extract additions and deletions
+        return parse_diff_html(diff_html)
+        
+    except Exception as e:
+        print(f"Error getting diff: {e}")
+        return None
+
+def parse_diff_html(diff_html):
+    """Parse Wikipedia's diff HTML to extract meaningful changes"""
+    additions = []
+    deletions = []
+    unchanged = []
+    
+    try:
+        # Look for added content (in green/blue highlighting)
+        added_pattern = r'<td class="diff-addedline"[^>]*><div[^>]*>(.*?)</div></td>'
+        added_matches = re.findall(added_pattern, diff_html, re.DOTALL)
+        
+        for match in added_matches:
+            # Clean up the HTML and extract meaningful text
+            clean_text = re.sub(r'<[^>]+>', '', match)
+            clean_text = unescape(clean_text).strip()
+            if clean_text and len(clean_text) > 1:
+                # Split into sentences or meaningful chunks
+                sentences = [s.strip() for s in clean_text.split('.') if s.strip()]
+                additions.extend(sentences[:3])  # Limit to 3 sentences
+        
+        # Look for deleted content (in red highlighting)  
+        deleted_pattern = r'<td class="diff-deletedline"[^>]*><div[^>]*>(.*?)</div></td>'
+        deleted_matches = re.findall(deleted_pattern, diff_html, re.DOTALL)
+        
+        for match in deleted_matches:
+            clean_text = re.sub(r'<[^>]+>', '', match)
+            clean_text = unescape(clean_text).strip()
+            if clean_text and len(clean_text) > 1:
+                sentences = [s.strip() for s in clean_text.split('.') if s.strip()]
+                deletions.extend(sentences[:3])  # Limit to 3 sentences
+        
+        # Look for context/unchanged content
+        context_pattern = r'<td class="diff-context"[^>]*><div[^>]*>(.*?)</div></td>'
+        context_matches = re.findall(context_pattern, diff_html, re.DOTALL)
+        
+        for match in context_matches[:2]:  # Limit context
+            clean_text = re.sub(r'<[^>]+>', '', match)
+            clean_text = unescape(clean_text).strip()
+            if clean_text and len(clean_text) > 1:
+                unchanged.append(clean_text[:100])  # Limit length
+        
+        return {
+            "additions": additions[:5],  # Limit to 5 items
+            "deletions": deletions[:5],
+            "unchanged": unchanged[:2]
+        }
+        
+    except Exception as e:
+        print(f"Error parsing diff HTML: {e}")
+        return {
+            "additions": [],
+            "deletions": [],
+            "unchanged": []
+        }
 
 # API ENDPOINTS
 
@@ -889,6 +974,95 @@ def get_user_risk_assessment(username):
             "behaviorRisk": 0,
             "overallRisk": 0,
             "alerts": []
+        }), 200
+
+@app.route('/api/user/<username>/article-edits', methods=['GET'])
+@cached_response("user_article_edits")
+def get_user_article_edits(username):
+    title = request.args.get("title", "")
+    
+    if not username or not title:
+        return jsonify({
+            "error": "Missing username or title parameter",
+            "edits": [],
+            "totalEdits": 0
+        }), 200
+    
+    try:
+        # Get user's revisions for this specific article
+        params = {
+            "action": "query",
+            "format": "json",
+            "prop": "revisions",
+            "titles": title,
+            "rvlimit": "20",  # Get last 20 edits by this user
+            "rvprop": "ids|timestamp|user|comment|size",
+            "rvuser": username,
+            "rvdir": "older"
+        }
+        
+        response = requests.get(WIKI_API, params=params, headers=HEADERS, timeout=10)
+        if response.status_code != 200:
+            return jsonify({
+                "error": f"Wikipedia API request failed with status code {response.status_code}",
+                "edits": [],
+                "totalEdits": 0
+            }), 200
+        
+        data = response.json()
+        pages = data.get("query", {}).get("pages", {})
+        if not pages:
+            return jsonify({
+                "error": "No pages found",
+                "edits": [],
+                "totalEdits": 0
+            }), 200
+        
+        page = next(iter(pages.values()))
+        revisions = page.get("revisions", [])
+        
+        if not revisions:
+            return jsonify({
+                "edits": [],
+                "totalEdits": 0
+            })
+        
+        edit_diffs = []
+        
+        # Process each revision to get diff information
+        for i, revision in enumerate(revisions):
+            rev_id = revision.get("revid")
+            parent_id = revision.get("parentid")
+            timestamp = revision.get("timestamp", "")
+            comment = revision.get("comment", "No edit summary")
+            
+            # Get the diff for this revision
+            if parent_id:
+                diff_data = get_revision_diff(parent_id, rev_id)
+                if diff_data:
+                    edit_diffs.append({
+                        "revid": rev_id,
+                        "parentid": parent_id,
+                        "timestamp": timestamp,
+                        "comment": comment,
+                        "additions": diff_data.get("additions", []),
+                        "deletions": diff_data.get("deletions", []),
+                        "unchanged": diff_data.get("unchanged", []),
+                        "size_change": revision.get("size", 0) - revisions[i+1].get("size", 0) if i+1 < len(revisions) else 0
+                    })
+        
+        return jsonify({
+            "edits": edit_diffs,
+            "totalEdits": len(revisions),
+            "username": username,
+            "article": title
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "error": f"Unexpected error: {str(e)}",
+            "edits": [],
+            "totalEdits": 0
         }), 200
 
 @app.route('/', methods=['GET'])
