@@ -766,8 +766,8 @@ def get_co_editors():
 
     try:
         editors_data = get_top_editors(title)
-        
         result = []
+        
         if len(editors_data) > 1:
             for i in range(len(editors_data) - 1):
                 result.append({
@@ -815,7 +815,7 @@ def get_user_contributions(username):
             "format": "json",
             "list": "usercontribs",
             "ucuser": username,
-            "uclimit": "200",  # Reduced from 500
+            "uclimit": "300",  # Reduced from 500
             "ucprop": "title|sizediff",
         }
         
@@ -937,6 +937,207 @@ def get_revision_intensity():
         return jsonify({"error": f"JSON decode error: {str(e)}", "intensity_data": {}}), 200
     except Exception as e:
         return jsonify({"error": f"Unexpected error: {str(e)}", "intensity_data": {}}), 200
+
+# NEW ENDPOINT: User Account Analysis for security assessment
+@app.route('/api/user-account-analysis', methods=['GET'])
+@cached_response("user_account_analysis")
+def get_user_account_analysis():
+    title = request.args.get("title")
+    if not title:
+        return jsonify({
+            "error": "Missing title parameter",
+            "newUsers": [],
+            "blockedUsers": [],
+            "accountAges": [],
+            "anonymousCount": 0,
+            "totalEditors": 0,
+            "loading": False
+        }), 200
+    
+    try:
+        # First get the editors who have edited this article
+        params = {
+            "action": "query",
+            "format": "json",
+            "prop": "revisions",
+            "titles": title,
+            "rvlimit": "300",  # Get more revisions to analyze user patterns
+            "rvprop": "user|timestamp",
+            "rvdir": "older"
+        }
+        
+        response = requests.get(WIKI_API, params=params, headers=HEADERS, timeout=10)
+        if response.status_code != 200:
+            return jsonify({
+                "error": f"Wikipedia API request failed with status code {response.status_code}",
+                "newUsers": [],
+                "blockedUsers": [],
+                "accountAges": [],
+                "anonymousCount": 0,
+                "totalEditors": 0,
+                "loading": False
+            }), 200
+        
+        data = response.json()
+        pages = data.get("query", {}).get("pages", {})
+        if not pages:
+            return jsonify({
+                "error": "No pages found in response",
+                "newUsers": [],
+                "blockedUsers": [],
+                "accountAges": [],
+                "anonymousCount": 0,
+                "totalEditors": 0,
+                "loading": False
+            }), 200
+        
+        page = next(iter(pages.values()))
+        revisions = page.get("revisions", [])
+        
+        # Count edits per user and separate anonymous vs registered
+        user_edit_counts = {}
+        anonymous_count = 0
+        
+        for rev in revisions:
+            user = rev.get("user", "Unknown")
+            if user and user != "Unknown":
+                # Check if it's an IP address (anonymous user)
+                if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}
+@app.route('/', methods=['GET'])
+def health_check():
+    return jsonify({"status": "OK", "message": "WikiDash API is running"})
+
+if __name__ == '__main__':
+    import os
+
+    port = int(os.environ.get('PORT', 10000))
+    print(f"Starting Flask on 0.0.0.0:{port}")
+    app.run(host='0.0.0.0', port=port, debug=False), user):
+                    anonymous_count += 1
+                else:
+                    # Registered user
+                    user_edit_counts[user] = user_edit_counts.get(user, 0) + 1
+        
+        registered_users = list(user_edit_counts.keys())
+        
+        if not registered_users:
+            return jsonify({
+                "newUsers": [],
+                "blockedUsers": [],
+                "accountAges": [],
+                "anonymousCount": anonymous_count,
+                "totalEditors": 0,
+                "loading": False
+            })
+        
+        # Now get detailed information about these users
+        # We'll batch the requests to avoid hitting API limits
+        user_details = []
+        
+        # Process users in batches of 50 (API limit)
+        for i in range(0, len(registered_users), 50):
+            batch = registered_users[i:i+50]
+            user_params = {
+                "action": "query",
+                "format": "json",
+                "list": "users",
+                "ususers": "|".join(batch),
+                "usprop": "registration|editcount|blockinfo"
+            }
+            
+            try:
+                user_response = requests.get(WIKI_API, params=user_params, headers=HEADERS, timeout=10)
+                if user_response.status_code == 200:
+                    user_data = user_response.json()
+                    users = user_data.get("query", {}).get("users", [])
+                    
+                    for user_info in users:
+                        username = user_info.get("name", "")
+                        registration = user_info.get("registration", "")
+                        edit_count = user_info.get("editcount", 0)
+                        blocked = "blockid" in user_info  # User is blocked if blockid exists
+                        
+                        # Calculate account age
+                        account_age_days = 0
+                        if registration:
+                            try:
+                                from datetime import datetime
+                                reg_date = datetime.fromisoformat(registration.replace('Z', '+00:00'))
+                                now = datetime.now(reg_date.tzinfo)
+                                account_age_days = (now - reg_date).days
+                            except:
+                                account_age_days = 0
+                        
+                        user_details.append({
+                            "username": username,
+                            "registration": registration,
+                            "accountAge": account_age_days,
+                            "editCount": edit_count,
+                            "blocked": blocked,
+                            "articleEdits": user_edit_counts.get(username, 0)
+                        })
+            except Exception as e:
+                print(f"Error fetching user batch: {e}")
+                continue
+        
+        # Categorize users
+        new_users = []  # Users with accounts less than 30 days old
+        blocked_users = []  # Currently blocked users
+        
+        for user in user_details:
+            if user["accountAge"] < 30 and user["accountAge"] >= 0:
+                new_users.append({
+                    "username": user["username"],
+                    "accountAge": user["accountAge"],
+                    "editCount": user["articleEdits"]
+                })
+            
+            if user["blocked"]:
+                blocked_users.append({
+                    "username": user["username"],
+                    "editCount": user["articleEdits"]
+                })
+        
+        # Sort by edit count on this article (most active first)
+        new_users.sort(key=lambda x: x["editCount"], reverse=True)
+        blocked_users.sort(key=lambda x: x["editCount"], reverse=True)
+        
+        # Account ages sorted by most recent first
+        account_ages = sorted([{
+            "username": user["username"],
+            "accountAge": user["accountAge"],
+            "editCount": user["articleEdits"]
+        } for user in user_details], key=lambda x: x["accountAge"])
+        
+        return jsonify({
+            "newUsers": new_users,
+            "blockedUsers": blocked_users,
+            "accountAges": account_ages,
+            "anonymousCount": anonymous_count,
+            "totalEditors": len(registered_users),
+            "loading": False
+        })
+        
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            "error": f"Request error: {str(e)}",
+            "newUsers": [],
+            "blockedUsers": [],
+            "accountAges": [],
+            "anonymousCount": 0,
+            "totalEditors": 0,
+            "loading": False
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "error": f"Unexpected error: {str(e)}",
+            "newUsers": [],
+            "blockedUsers": [],
+            "accountAges": [],
+            "anonymousCount": 0,
+            "totalEditors": 0,
+            "loading": False
+        }), 200
 
 # Basic health check endpoint
 @app.route('/', methods=['GET'])
