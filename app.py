@@ -1002,7 +1002,7 @@ def get_user_account_analysis():
             user = rev.get("user", "Unknown")
             if user and user != "Unknown":
                 # Check if it's an IP address (anonymous user)
-                if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}
+                if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', user):
 @app.route('/', methods=['GET'])
 def health_check():
     return jsonify({"status": "OK", "message": "WikiDash API is running"})
