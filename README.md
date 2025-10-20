@@ -1,4 +1,4 @@
-# 📚 WikiDash Backend
+# WikiDash Backend
 
 This is the Flask backend powering **WikiDash**, an open-source OSINT dashboard for exploring hidden insights about Wikipedia articles.
 
