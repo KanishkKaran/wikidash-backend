@@ -1139,6 +1139,527 @@ if __name__ == '__main__':
             "loading": False
         }), 200
 
+# NEW ENDPOINT: Individual User Risk Assessment
+@app.route('/api/user/<username>/risk-assessment', methods=['GET'])
+@cached_response("user_risk_assessment")
+def get_user_risk_assessment(username):
+    title = request.args.get("title", "")
+    
+    if not username:
+        return jsonify({
+            "error": "Missing username parameter",
+            "accountRisk": 0,
+            "behaviorRisk": 0,
+            "overallRisk": 0,
+            "alerts": []
+        }), 200
+    
+    try:
+        # Get user information
+        user_params = {
+            "action": "query",
+            "format": "json",
+            "list": "users",
+            "ususers": username,
+            "usprop": "registration|editcount|blockinfo"
+        }
+        
+        user_response = requests.get(WIKI_API, params=user_params, headers=HEADERS, timeout=10)
+        if user_response.status_code != 200:
+            return jsonify({
+                "error": f"Wikipedia API request failed with status code {user_response.status_code}",
+                "accountRisk": 0,
+                "behaviorRisk": 0,
+                "overallRisk": 0,
+                "alerts": []
+            }), 200
+        
+        user_data = user_response.json()
+        users = user_data.get("query", {}).get("users", [])
+        
+        if not users or users[0].get("missing"):
+            return jsonify({
+                "error": "User not found",
+                "accountRisk": 0,
+                "behaviorRisk": 0,
+                "overallRisk": 0,
+                "alerts": []
+            })
+        
+        user_info = users[0]
+        registration = user_info.get("registration", "")
+        edit_count = user_info.get("editcount", 0)
+        blocked = "blockid" in user_info
+        
+        # Calculate account age
+        account_age_days = 0
+        registration_date = "Unknown"
+        if registration:
+            try:
+                from datetime import datetime
+                reg_date = datetime.fromisoformat(registration.replace('Z', '+00:00'))
+                now = datetime.now(reg_date.tzinfo)
+                account_age_days = (now - reg_date).days
+                registration_date = reg_date.strftime("%B %d, %Y")
+            except:
+                account_age_days = 0
+        
+        # Get user's edits on this specific article
+        article_edits = 0
+        revert_count = 0
+        if title:
+            article_params = {
+                "action": "query",
+                "format": "json",
+                "prop": "revisions",
+                "titles": title,
+                "rvlimit": "500",
+                "rvprop": "user|comment",
+                "rvuser": username
+            }
+            
+            try:
+                article_response = requests.get(WIKI_API, params=article_params, headers=HEADERS, timeout=10)
+                if article_response.status_code == 200:
+                    article_data = article_response.json()
+                    pages = article_data.get("query", {}).get("pages", {})
+                    if pages:
+                        page = next(iter(pages.values()))
+                        revisions = page.get("revisions", [])
+                        article_edits = len(revisions)
+                        
+                        # Count reverts by this user
+                        for rev in revisions:
+                            comment = rev.get("comment", "").lower()
+                            if any(phrase in comment for phrase in ["reverted", "undo", "rv", "revert"]):
+                                revert_count += 1
+            except:
+                pass
+        
+        # Risk Assessment Calculations
+        alerts = []
+        
+        # Account Risk (0-100)
+        account_risk = 0
+        if account_age_days < 7:
+            account_risk = 90
+            alerts.append("Very new account (less than 1 week old)")
+        elif account_age_days < 30:
+            account_risk = 70
+            alerts.append("New account (less than 1 month old)")
+        elif account_age_days < 90:
+            account_risk = 40
+            alerts.append("Recently created account (less than 3 months old)")
+        elif edit_count < 100:
+            account_risk = 30
+            alerts.append("Low overall edit count")
+        
+        if blocked:
+            account_risk = min(100, account_risk + 50)
+            alerts.append("Currently blocked user")
+        
+        # Behavior Risk (0-100)
+        behavior_risk = 0
+        if article_edits > 0:
+            revert_ratio = revert_count / article_edits
+            if revert_ratio > 0.3:
+                behavior_risk = 80
+                alerts.append("High revert activity on this article")
+            elif revert_ratio > 0.1:
+                behavior_risk = 50
+                alerts.append("Some revert activity detected")
+            
+            # Check edit concentration
+            if edit_count > 0:
+                concentration = article_edits / edit_count
+                if concentration > 0.5:
+                    behavior_risk = max(behavior_risk, 60)
+                    alerts.append("High edit concentration on this single article")
+        
+        # Overall Risk
+        overall_risk = max(account_risk, behavior_risk)
+        
+        # Format account age
+        account_age_str = "Unknown"
+        if account_age_days > 0:
+            if account_age_days < 7:
+                account_age_str = f"{account_age_days} days"
+            elif account_age_days < 30:
+                account_age_str = f"{account_age_days // 7} weeks"
+            elif account_age_days < 365:
+                account_age_str = f"{account_age_days // 30} months"
+            else:
+                account_age_str = f"{account_age_days // 365} years"
+        
+        # Edit frequency
+        edit_frequency = "Unknown"
+        if edit_count > 0 and account_age_days > 0:
+            edits_per_day = edit_count / account_age_days
+            if edits_per_day > 100:
+                edit_frequency = "Very High"
+            elif edits_per_day > 10:
+                edit_frequency = "High"
+            elif edits_per_day > 1:
+                edit_frequency = "Moderate"
+            else:
+                edit_frequency = "Low"
+        
+        return jsonify({
+            "accountRisk": account_risk,
+            "behaviorRisk": behavior_risk,
+            "overallRisk": overall_risk,
+            "accountAge": account_age_str,
+            "registrationDate": registration_date,
+            "blocked": blocked,
+            "articleEdits": article_edits,
+            "editFrequency": edit_frequency,
+            "revertCount": revert_count,
+            "alerts": alerts
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "error": f"Unexpected error: {str(e)}",
+            "accountRisk": 0,
+            "behaviorRisk": 0,
+            "overallRisk": 0,
+            "alerts": []
+        }), 200
+
+# Basic health check endpoint
+@app.route('/', methods=['GET'])
+def health_check():
+    return jsonify({"status": "OK", "message": "WikiDash API is running"})
+
+if __name__ == '__main__':
+    import os
+
+    port = int(os.environ.get('PORT', 10000))
+    print(f"Starting Flask on 0.0.0.0:{port}")
+    app.run(host='0.0.0.0', port=port, debug=False), user):
+@app.route('/', methods=['GET'])
+def health_check():
+    return jsonify({"status": "OK", "message": "WikiDash API is running"})
+
+if __name__ == '__main__':
+    import os
+
+    port = int(os.environ.get('PORT', 10000))
+    print(f"Starting Flask on 0.0.0.0:{port}")
+    app.run(host='0.0.0.0', port=port, debug=False), user):
+                    anonymous_count += 1
+                else:
+                    # Registered user
+                    user_edit_counts[user] = user_edit_counts.get(user, 0) + 1
+        
+        registered_users = list(user_edit_counts.keys())
+        
+        if not registered_users:
+            return jsonify({
+                "newUsers": [],
+                "blockedUsers": [],
+                "accountAges": [],
+                "anonymousCount": anonymous_count,
+                "totalEditors": 0,
+                "loading": False
+            })
+        
+        # Now get detailed information about these users
+        # We'll batch the requests to avoid hitting API limits
+        user_details = []
+        
+        # Process users in batches of 50 (API limit)
+        for i in range(0, len(registered_users), 50):
+            batch = registered_users[i:i+50]
+            user_params = {
+                "action": "query",
+                "format": "json",
+                "list": "users",
+                "ususers": "|".join(batch),
+                "usprop": "registration|editcount|blockinfo"
+            }
+            
+            try:
+                user_response = requests.get(WIKI_API, params=user_params, headers=HEADERS, timeout=10)
+                if user_response.status_code == 200:
+                    user_data = user_response.json()
+                    users = user_data.get("query", {}).get("users", [])
+                    
+                    for user_info in users:
+                        username = user_info.get("name", "")
+                        registration = user_info.get("registration", "")
+                        edit_count = user_info.get("editcount", 0)
+                        blocked = "blockid" in user_info  # User is blocked if blockid exists
+                        
+                        # Calculate account age
+                        account_age_days = 0
+                        if registration:
+                            try:
+                                from datetime import datetime
+                                reg_date = datetime.fromisoformat(registration.replace('Z', '+00:00'))
+                                now = datetime.now(reg_date.tzinfo)
+                                account_age_days = (now - reg_date).days
+                            except:
+                                account_age_days = 0
+                        
+                        user_details.append({
+                            "username": username,
+                            "registration": registration,
+                            "accountAge": account_age_days,
+                            "editCount": edit_count,
+                            "blocked": blocked,
+                            "articleEdits": user_edit_counts.get(username, 0)
+                        })
+            except Exception as e:
+                print(f"Error fetching user batch: {e}")
+                continue
+        
+        # Categorize users
+        new_users = []  # Users with accounts less than 30 days old
+        blocked_users = []  # Currently blocked users
+        
+        for user in user_details:
+            if user["accountAge"] < 30 and user["accountAge"] >= 0:
+                new_users.append({
+                    "username": user["username"],
+                    "accountAge": user["accountAge"],
+                    "editCount": user["articleEdits"]
+                })
+            
+            if user["blocked"]:
+                blocked_users.append({
+                    "username": user["username"],
+                    "editCount": user["articleEdits"]
+                })
+        
+        # Sort by edit count on this article (most active first)
+        new_users.sort(key=lambda x: x["editCount"], reverse=True)
+        blocked_users.sort(key=lambda x: x["editCount"], reverse=True)
+        
+        # Account ages sorted by most recent first
+        account_ages = sorted([{
+            "username": user["username"],
+            "accountAge": user["accountAge"],
+            "editCount": user["articleEdits"]
+        } for user in user_details], key=lambda x: x["accountAge"])
+        
+        return jsonify({
+            "newUsers": new_users,
+            "blockedUsers": blocked_users,
+            "accountAges": account_ages,
+            "anonymousCount": anonymous_count,
+            "totalEditors": len(registered_users),
+            "loading": False
+        })
+        
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            "error": f"Request error: {str(e)}",
+            "newUsers": [],
+            "blockedUsers": [],
+            "accountAges": [],
+            "anonymousCount": 0,
+            "totalEditors": 0,
+            "loading": False
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "error": f"Unexpected error: {str(e)}",
+            "newUsers": [],
+            "blockedUsers": [],
+            "accountAges": [],
+            "anonymousCount": 0,
+            "totalEditors": 0,
+            "loading": False
+        }), 200
+
+# NEW ENDPOINT: Individual User Risk Assessment
+@app.route('/api/user/<username>/risk-assessment', methods=['GET'])
+@cached_response("user_risk_assessment")
+def get_user_risk_assessment(username):
+    title = request.args.get("title", "")
+    
+    if not username:
+        return jsonify({
+            "error": "Missing username parameter",
+            "accountRisk": 0,
+            "behaviorRisk": 0,
+            "overallRisk": 0,
+            "alerts": []
+        }), 200
+    
+    try:
+        # Get user information
+        user_params = {
+            "action": "query",
+            "format": "json",
+            "list": "users",
+            "ususers": username,
+            "usprop": "registration|editcount|blockinfo"
+        }
+        
+        user_response = requests.get(WIKI_API, params=user_params, headers=HEADERS, timeout=10)
+        if user_response.status_code != 200:
+            return jsonify({
+                "error": f"Wikipedia API request failed with status code {user_response.status_code}",
+                "accountRisk": 0,
+                "behaviorRisk": 0,
+                "overallRisk": 0,
+                "alerts": []
+            }), 200
+        
+        user_data = user_response.json()
+        users = user_data.get("query", {}).get("users", [])
+        
+        if not users or users[0].get("missing"):
+            return jsonify({
+                "error": "User not found",
+                "accountRisk": 0,
+                "behaviorRisk": 0,
+                "overallRisk": 0,
+                "alerts": []
+            })
+        
+        user_info = users[0]
+        registration = user_info.get("registration", "")
+        edit_count = user_info.get("editcount", 0)
+        blocked = "blockid" in user_info
+        
+        # Calculate account age
+        account_age_days = 0
+        registration_date = "Unknown"
+        if registration:
+            try:
+                from datetime import datetime
+                reg_date = datetime.fromisoformat(registration.replace('Z', '+00:00'))
+                now = datetime.now(reg_date.tzinfo)
+                account_age_days = (now - reg_date).days
+                registration_date = reg_date.strftime("%B %d, %Y")
+            except:
+                account_age_days = 0
+        
+        # Get user's edits on this specific article
+        article_edits = 0
+        revert_count = 0
+        if title:
+            article_params = {
+                "action": "query",
+                "format": "json",
+                "prop": "revisions",
+                "titles": title,
+                "rvlimit": "500",
+                "rvprop": "user|comment",
+                "rvuser": username
+            }
+            
+            try:
+                article_response = requests.get(WIKI_API, params=article_params, headers=HEADERS, timeout=10)
+                if article_response.status_code == 200:
+                    article_data = article_response.json()
+                    pages = article_data.get("query", {}).get("pages", {})
+                    if pages:
+                        page = next(iter(pages.values()))
+                        revisions = page.get("revisions", [])
+                        article_edits = len(revisions)
+                        
+                        # Count reverts by this user
+                        for rev in revisions:
+                            comment = rev.get("comment", "").lower()
+                            if any(phrase in comment for phrase in ["reverted", "undo", "rv", "revert"]):
+                                revert_count += 1
+            except:
+                pass
+        
+        # Risk Assessment Calculations
+        alerts = []
+        
+        # Account Risk (0-100)
+        account_risk = 0
+        if account_age_days < 7:
+            account_risk = 90
+            alerts.append("Very new account (less than 1 week old)")
+        elif account_age_days < 30:
+            account_risk = 70
+            alerts.append("New account (less than 1 month old)")
+        elif account_age_days < 90:
+            account_risk = 40
+            alerts.append("Recently created account (less than 3 months old)")
+        elif edit_count < 100:
+            account_risk = 30
+            alerts.append("Low overall edit count")
+        
+        if blocked:
+            account_risk = min(100, account_risk + 50)
+            alerts.append("Currently blocked user")
+        
+        # Behavior Risk (0-100)
+        behavior_risk = 0
+        if article_edits > 0:
+            revert_ratio = revert_count / article_edits
+            if revert_ratio > 0.3:
+                behavior_risk = 80
+                alerts.append("High revert activity on this article")
+            elif revert_ratio > 0.1:
+                behavior_risk = 50
+                alerts.append("Some revert activity detected")
+            
+            # Check edit concentration
+            if edit_count > 0:
+                concentration = article_edits / edit_count
+                if concentration > 0.5:
+                    behavior_risk = max(behavior_risk, 60)
+                    alerts.append("High edit concentration on this single article")
+        
+        # Overall Risk
+        overall_risk = max(account_risk, behavior_risk)
+        
+        # Format account age
+        account_age_str = "Unknown"
+        if account_age_days > 0:
+            if account_age_days < 7:
+                account_age_str = f"{account_age_days} days"
+            elif account_age_days < 30:
+                account_age_str = f"{account_age_days // 7} weeks"
+            elif account_age_days < 365:
+                account_age_str = f"{account_age_days // 30} months"
+            else:
+                account_age_str = f"{account_age_days // 365} years"
+        
+        # Edit frequency
+        edit_frequency = "Unknown"
+        if edit_count > 0 and account_age_days > 0:
+            edits_per_day = edit_count / account_age_days
+            if edits_per_day > 100:
+                edit_frequency = "Very High"
+            elif edits_per_day > 10:
+                edit_frequency = "High"
+            elif edits_per_day > 1:
+                edit_frequency = "Moderate"
+            else:
+                edit_frequency = "Low"
+        
+        return jsonify({
+            "accountRisk": account_risk,
+            "behaviorRisk": behavior_risk,
+            "overallRisk": overall_risk,
+            "accountAge": account_age_str,
+            "registrationDate": registration_date,
+            "blocked": blocked,
+            "articleEdits": article_edits,
+            "editFrequency": edit_frequency,
+            "revertCount": revert_count,
+            "alerts": alerts
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "error": f"Unexpected error: {str(e)}",
+            "accountRisk": 0,
+            "behaviorRisk": 0,
+            "overallRisk": 0,
+            "alerts": []
+        }), 200
+
 # Basic health check endpoint
 @app.route('/', methods=['GET'])
 def health_check():
