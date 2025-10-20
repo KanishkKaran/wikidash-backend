@@ -47,7 +47,13 @@ def cached_response(cache_prefix):
             if not title:
                 return f(*args, **kwargs)
             
-            cache_key = f"{cache_prefix}_{title}"
+            # FIX: Include username in cache key for user-specific endpoints
+            username = kwargs.get('username', '')
+            if username:
+                cache_key = f"{cache_prefix}_{title}_{username}"
+            else:
+                cache_key = f"{cache_prefix}_{title}"
+            
             cached_data = get_from_cache(cache_key)
             if cached_data:
                 return jsonify(cached_data)
