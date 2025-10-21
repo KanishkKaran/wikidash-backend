@@ -212,6 +212,29 @@ def how_to_use_page():
     return Response(html_content, mimetype='text/html')
 
 # Helper functions for Wikipedia diff parsing
+def is_meaningful_edit(comment, size_change):
+    """Determine if an edit represents meaningful content change"""
+    if not comment:
+        return size_change and abs(size_change) > 10  # Substantial size change
+    
+    comment_lower = comment.lower()
+    
+    # Filter out administrative/minor edits
+    admin_keywords = [
+        'reverted', 'undo', 'vandalism', 'spam', 'test edit',
+        'typo', 'grammar', 'spelling', 'formatting', 'style',
+        'category', 'template', 'infobox', 'stub', 'redirect',
+        'disambiguation', 'cleanup', 'wikify', 'copyedit',
+        'moved page', 'created page', 'deleted'
+    ]
+    
+    # If comment contains admin keywords and small size change, likely not content
+    if any(keyword in comment_lower for keyword in admin_keywords):
+        return abs(size_change or 0) > 50  # Only if substantial change
+    
+    # Otherwise assume it's meaningful content
+    return True
+
 def get_revision_diff(from_rev, to_rev):
     """Get the diff between two revisions using Wikipedia's compare API"""
     try:
@@ -241,50 +264,71 @@ def get_revision_diff(from_rev, to_rev):
         return None
 
 def parse_diff_html(diff_html):
-    """Parse Wikipedia's diff HTML to extract meaningful changes"""
+    """Parse Wikipedia's diff HTML to extract meaningful content changes only"""
     additions = []
     deletions = []
     unchanged = []
     
     try:
-        # Look for added content (in green/blue highlighting)
+        # Enhanced patterns to extract meaningful content changes
         added_pattern = r'<td class="diff-addedline"[^>]*><div[^>]*>(.*?)</div></td>'
         added_matches = re.findall(added_pattern, diff_html, re.DOTALL)
         
         for match in added_matches:
-            # Clean up the HTML and extract meaningful text
+            # Clean up HTML and extract text content
             clean_text = re.sub(r'<[^>]+>', '', match)
             clean_text = unescape(clean_text).strip()
-            if clean_text and len(clean_text) > 1:
-                # Split into sentences or meaningful chunks
-                sentences = [s.strip() for s in clean_text.split('.') if s.strip()]
-                additions.extend(sentences[:3])  # Limit to 3 sentences
+            
+            # Filter out trivial changes
+            if clean_text and len(clean_text) > 3:
+                # Remove wiki markup noise
+                clean_text = re.sub(r'\[\[([^|\]]+)\|([^\]]+)\]\]', r'\2', clean_text)  # [[link|text]] -> text
+                clean_text = re.sub(r'\[\[([^\]]+)\]\]', r'\1', clean_text)  # [[link]] -> link
+                clean_text = re.sub(r'\{\{[^}]+\}\}', '', clean_text)  # Remove templates
+                clean_text = re.sub(r'<ref[^>]*>.*?</ref>', '', clean_text, flags=re.DOTALL)  # Remove refs
+                clean_text = re.sub(r'==+([^=]+)==+', r'\1', clean_text)  # Headers
+                clean_text = clean_text.strip()
+                
+                # Only include substantial text changes
+                if len(clean_text) > 10 and not re.match(r'^[\s\d\.\,\;\:\-\(\)]*$', clean_text):
+                    sentences = [s.strip() for s in clean_text.split('.') if len(s.strip()) > 15]
+                    additions.extend(sentences[:2])  # Limit to 2 meaningful sentences
         
-        # Look for deleted content (in red highlighting)  
+        # Similar processing for deletions
         deleted_pattern = r'<td class="diff-deletedline"[^>]*><div[^>]*>(.*?)</div></td>'
         deleted_matches = re.findall(deleted_pattern, diff_html, re.DOTALL)
         
         for match in deleted_matches:
             clean_text = re.sub(r'<[^>]+>', '', match)
             clean_text = unescape(clean_text).strip()
-            if clean_text and len(clean_text) > 1:
-                sentences = [s.strip() for s in clean_text.split('.') if s.strip()]
-                deletions.extend(sentences[:3])  # Limit to 3 sentences
+            
+            if clean_text and len(clean_text) > 3:
+                # Same cleanup as additions
+                clean_text = re.sub(r'\[\[([^|\]]+)\|([^\]]+)\]\]', r'\2', clean_text)
+                clean_text = re.sub(r'\[\[([^\]]+)\]\]', r'\1', clean_text)
+                clean_text = re.sub(r'\{\{[^}]+\}\}', '', clean_text)
+                clean_text = re.sub(r'<ref[^>]*>.*?</ref>', '', clean_text, flags=re.DOTALL)
+                clean_text = re.sub(r'==+([^=]+)==+', r'\1', clean_text)
+                clean_text = clean_text.strip()
+                
+                if len(clean_text) > 10 and not re.match(r'^[\s\d\.\,\;\:\-\(\)]*$', clean_text):
+                    sentences = [s.strip() for s in clean_text.split('.') if len(s.strip()) > 15]
+                    deletions.extend(sentences[:2])
         
-        # Look for context/unchanged content
+        # Context extraction (unchanged content) - simplified
         context_pattern = r'<td class="diff-context"[^>]*><div[^>]*>(.*?)</div></td>'
         context_matches = re.findall(context_pattern, diff_html, re.DOTALL)
         
-        for match in context_matches[:2]:  # Limit context
+        for match in context_matches[:1]:  # Only get one context line
             clean_text = re.sub(r'<[^>]+>', '', match)
             clean_text = unescape(clean_text).strip()
-            if clean_text and len(clean_text) > 1:
-                unchanged.append(clean_text[:100])  # Limit length
+            if clean_text and len(clean_text) > 5:
+                unchanged.append(clean_text[:80])  # Keep it short
         
         return {
-            "additions": additions[:5],  # Limit to 5 items
-            "deletions": deletions[:5],
-            "unchanged": unchanged[:2]
+            "additions": additions[:3],    # Limit to 3 meaningful additions
+            "deletions": deletions[:3],    # Limit to 3 meaningful deletions  
+            "unchanged": unchanged[:1]     # Limit to 1 context line
         }
         
     except Exception as e:
@@ -401,7 +445,8 @@ def get_edit_timeline():
         "titles": title,
         "rvlimit": "200",
         "rvprop": "timestamp",
-        "rvdir": "older"
+        "rvdir": "older",
+        "rvnamespace": "0"  # Only main article namespace
     }
 
     try:
@@ -444,7 +489,8 @@ def get_top_reverters():
         "titles": title,
         "rvlimit": "200",
         "rvprop": "user|comment",
-        "rvdir": "older"
+        "rvdir": "older",
+        "rvnamespace": "0"  # Only main article namespace
     }
 
     try:
@@ -537,6 +583,7 @@ def get_user_contributions(username):
             "ucuser": username,
             "uclimit": "300",
             "ucprop": "title|sizediff",
+            "ucnamespace": "0"  # Only main article namespace
         }
         
         response = requests.get(WIKI_API, params=contrib_params, headers=HEADERS, timeout=10)
@@ -585,7 +632,8 @@ def get_revision_intensity():
             "titles": title,
             "rvlimit": "200",
             "rvprop": "timestamp|user|comment",
-            "rvdir": "newer"
+            "rvdir": "newer",
+            "rvnamespace": "0"  # Only main article namespace
         }
         
         edit_response = requests.get(WIKI_API, params=params_edits, headers=HEADERS, timeout=10)
@@ -651,7 +699,6 @@ def get_revision_intensity():
         return jsonify({"error": f"Unexpected error: {str(e)}", "intensity_data": {}}), 200
 
 @app.route('/api/user-account-analysis', methods=['GET'])
-#@cached_response("user_account_analysis")
 def get_user_account_analysis():
     title = request.args.get("title")
     if not title:
@@ -666,6 +713,7 @@ def get_user_account_analysis():
         }), 200
     
     try:
+        # FIXED: Add namespace filter to get only main article edits (namespace 0)
         params = {
             "action": "query",
             "format": "json",
@@ -673,7 +721,8 @@ def get_user_account_analysis():
             "titles": title,
             "rvlimit": "300",
             "rvprop": "user|timestamp",
-            "rvdir": "older"
+            "rvdir": "older",
+            "rvnamespace": "0"  # Only get main article namespace
         }
         
         response = requests.get(WIKI_API, params=params, headers=HEADERS, timeout=10)
@@ -710,7 +759,7 @@ def get_user_account_analysis():
         for rev in revisions:
             user = rev.get("user", "Unknown")
             if user and user != "Unknown":
-                if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', user):
+                if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}, user):
                     anonymous_count += 1
                 else:
                     user_edit_counts[user] = user_edit_counts.get(user, 0) + 1
@@ -889,7 +938,8 @@ def get_user_risk_assessment(username):
                 "titles": title,
                 "rvlimit": "500",
                 "rvprop": "user|comment",
-                "rvuser": username
+                "rvuser": username,
+                "rvnamespace": "0"  # Only main article namespace
             }
             
             try:
@@ -1005,23 +1055,22 @@ def get_user_article_edits(username):
         }), 200
     
     try:
-        # DEBUG: Print what we're actually querying for
         print(f"🔍 Backend: Fetching edits for user '{username}' on article '{title}'")
         
-        # FIXED: Get user's revisions for this specific article
-        # The key fix is adding rvuser parameter to filter by the specific user
+        # FIXED: Add namespace filter and exclude minor edits
         params = {
             "action": "query",
             "format": "json",
             "prop": "revisions",
             "titles": title,
-            "rvlimit": "20",  # Get last 20 edits by this user
+            "rvlimit": "20",
             "rvprop": "ids|timestamp|user|comment|size",
-            "rvuser": username,  # 🔥 THIS IS THE CRITICAL FIX - filter by user!
-            "rvdir": "older"
+            "rvuser": username,
+            "rvdir": "older",
+            "rvnamespace": "0",  # Only main article namespace
+            "rvshow": "!minor"   # Exclude minor edits (often automated)
         }
         
-        # DEBUG: Print the actual API call being made
         print(f"📡 Backend: Wikipedia API params: {params}")
         
         response = requests.get(WIKI_API, params=params, headers=HEADERS, timeout=10)
@@ -1035,7 +1084,6 @@ def get_user_article_edits(username):
         
         data = response.json()
         
-        # DEBUG: Check if Wikipedia returned an error
         if "error" in data:
             print(f"❌ Backend: Wikipedia API error: {data['error']}")
             return jsonify({
@@ -1055,7 +1103,6 @@ def get_user_article_edits(username):
         
         page = next(iter(pages.values()))
         
-        # Check if the page exists
         if "missing" in page:
             print(f"⚠️ Backend: Page '{title}' does not exist")
             return jsonify({
@@ -1066,11 +1113,10 @@ def get_user_article_edits(username):
         
         revisions = page.get("revisions", [])
         
-        # DEBUG: Log what we found
         print(f"✅ Backend: Found {len(revisions)} revisions for user '{username}' on '{title}'")
         
         if not revisions:
-            print(f"ℹ️ Backend: User '{username}' has no edits on article '{title}'")
+            print(f"ℹ️ Backend: User '{username}' has no meaningful edits on article '{title}'")
             return jsonify({
                 "edits": [],
                 "totalEdits": 0,
@@ -1088,7 +1134,6 @@ def get_user_article_edits(username):
             comment = revision.get("comment", "No edit summary")
             user = revision.get("user", "")
             
-            # VERIFY: Make sure this revision is actually by the requested user
             if user != username:
                 print(f"⚠️ Backend: Warning - found revision by '{user}' when querying for '{username}'")
                 continue
@@ -1100,6 +1145,11 @@ def get_user_article_edits(username):
                 previous_size = revisions[i + 1].get("size", 0)
                 size_change = current_size - previous_size
             
+            # Only include meaningful edits
+            if not is_meaningful_edit(comment, size_change):
+                print(f"🚫 Backend: Skipping non-meaningful edit: {comment[:50]}...")
+                continue
+            
             # Get the diff for this revision
             diff_data = None
             if parent_id:
@@ -1110,7 +1160,7 @@ def get_user_article_edits(username):
                 "parentid": parent_id,
                 "timestamp": timestamp,
                 "comment": comment,
-                "user": user,  # Include user for verification
+                "user": user,
                 "size_change": size_change
             }
             
@@ -1122,7 +1172,6 @@ def get_user_article_edits(username):
                     "unchanged": diff_data.get("unchanged", [])
                 })
             else:
-                # Provide empty arrays if no diff data
                 edit_entry.update({
                     "additions": [],
                     "deletions": [],
@@ -1131,17 +1180,16 @@ def get_user_article_edits(username):
             
             edit_diffs.append(edit_entry)
         
-        # DEBUG: Log final result
-        print(f"✅ Backend: Returning {len(edit_diffs)} processed edits for '{username}'")
+        print(f"✅ Backend: Returning {len(edit_diffs)} meaningful edits for '{username}'")
         
         result = {
             "edits": edit_diffs,
             "totalEdits": len(revisions),
+            "meaningfulEdits": len(edit_diffs),
             "username": username,
             "article": title
         }
         
-        # DEBUG: Log a sample of what we're returning
         if edit_diffs:
             print(f"📋 Backend: Sample edit - RevID: {edit_diffs[0].get('revid')}, User: {edit_diffs[0].get('user')}, Comment: {edit_diffs[0].get('comment', '')[:50]}...")
         
