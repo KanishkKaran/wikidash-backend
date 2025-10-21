@@ -759,7 +759,7 @@ def get_user_account_analysis():
         for rev in revisions:
             user = rev.get("user", "Unknown")
             if user and user != "Unknown":
-                if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}
+                if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', user):
                     anonymous_count += 1
                 else:
                     user_edit_counts[user] = user_edit_counts.get(user, 0) + 1
