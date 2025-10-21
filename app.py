@@ -651,7 +651,7 @@ def get_revision_intensity():
         return jsonify({"error": f"Unexpected error: {str(e)}", "intensity_data": {}}), 200
 
 @app.route('/api/user-account-analysis', methods=['GET'])
-@cached_response("user_account_analysis")
+#@cached_response("user_account_analysis")
 def get_user_account_analysis():
     title = request.args.get("title")
     if not title:
