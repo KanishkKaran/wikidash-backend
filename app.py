@@ -47,8 +47,18 @@ def cached_response(cache_prefix):
             if not title:
                 return f(*args, **kwargs)
             
-            # FIX: Include username in cache key for user-specific endpoints
-            username = kwargs.get('username', '')
+            # FIX: Properly extract username from both args and kwargs
+            username = ''
+            
+            # Check if username is in kwargs (keyword argument)
+            if 'username' in kwargs:
+                username = kwargs['username']
+            # Check if username is the first positional argument (for Flask routes like /api/user/<username>/...)
+            elif args and len(args) > 0:
+                # For routes like /api/user/<username>/article-edits, username is first arg
+                username = str(args[0])
+            
+            # Create cache key with username if present
             if username:
                 cache_key = f"{cache_prefix}_{title}_{username}"
             else:
